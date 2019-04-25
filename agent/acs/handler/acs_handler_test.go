@@ -759,7 +759,7 @@ func TestHandlerReconnectsOnDiscoverPollEndpointError(t *testing.T) {
 	// But, it can be off by a few milliseconds to account for execution of other instructions
 	// In any case, it should never be higher than 2*connectionBackoffMin
 	if timeSinceStart > 2*connectionBackoffMin {
-		t.Errorf("Duration since start is greater than maximum anticipated wait time: %v", timeSinceStart.String())
+		t.Errorf("Duration since start is greater than maximum anticipated wait time: %v and %v", timeSinceStart.String(), connectionBackoffMin)
 	}
 
 }

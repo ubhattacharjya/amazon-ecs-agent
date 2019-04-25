@@ -28,8 +28,6 @@ import (
 
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
 	ecsapi "github.com/aws/amazon-ecs-agent/agent/ecs_client/model/ecs"
-	. "github.com/aws/amazon-ecs-agent/agent/functional_tests/util"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -680,6 +678,7 @@ func waitCloudwatchLogs(client *cloudwatchlogs.CloudWatchLogs, params *cloudwatc
 
 	return nil, fmt.Errorf("Timeout waiting for the logs to be sent to cloud watch logs")
 }
+
 func testV3TaskEndpoint(t *testing.T, taskName, containerName, networkMode, awslogsPrefix string) {
 	agentOptions := &AgentOptions{
 		EnableTaskENI: true,
