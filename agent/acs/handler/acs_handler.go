@@ -200,7 +200,7 @@ func (acsSession *session) Start() error {
 				seelog.Debug("Container instance is deregistered, notifying listeners..")
 				err := acsSession.deregisterInstanceEventStream.WriteToEventStream(struct{}{})
 				if err != nil {
-					seelog.Debugf("Faiiled to write to deregister container instance event stream, err: %v", err)
+					seelog.Debugf("Faiiiled to write to deregister container instance event stream, err: %v", err)
 				}
 			}
 			if shouldReconnectWithoutBackoff(acsError) {
