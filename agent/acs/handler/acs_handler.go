@@ -197,7 +197,7 @@ func (acsSession *session) Start() error {
 			if isInactiveInstance {
 				// If the instance was deregistered, send an event to the event stream
 				// for the same
-				seelog.Debug("Container instance is deregistered, notifying listeners")
+				seelog.Debug("Container instance is deregistered, notifying listeners..")
 				err := acsSession.deregisterInstanceEventStream.WriteToEventStream(struct{}{})
 				if err != nil {
 					seelog.Debugf("Failed to write to deregister container instance event stream, err: %v", err)
