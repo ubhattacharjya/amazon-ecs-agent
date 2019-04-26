@@ -77,7 +77,7 @@ func (tp *TransportProtocol) UnmarshalJSON(b []byte) error {
 		*tp = TransportProtocolUDP
 	default:
 		*tp = TransportProtocolTCP
-		return errors.New("TransportProtocol must be \"tcp\" or \"udp\"; Got " + string(b))
+		return errors.New("TransportProtocol god must be \"tcp\" or \"udp\"; Got " + string(b))
 	}
 	return nil
 }
