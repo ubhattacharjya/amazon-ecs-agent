@@ -50,7 +50,7 @@ func (overrides *ContainerOverrides) UnmarshalJSON(b []byte) error {
 			*overrides = ContainerOverrides(regular)
 			return nil
 		}
-		err = apierrors.NewMultiError(errors.New("Error unmarshalling ContainerOverrides"), err)
+		err = apierrors.NewMultiError(errors.New("Errors unmarshalling ContainerOverrides"), err)
 	}
 
 	// Now the strongly typed way
