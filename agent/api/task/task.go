@@ -251,7 +251,7 @@ func (task *Task) PostUnmarshalTask(cfg *config.Config,
 	if task.MemoryCPULimitsEnabled {
 		err := task.initializeCgroupResourceSpec(cfg.CgroupPath, cfg.CgroupCPUPeriod, resourceFields)
 		if err != nil {
-			seelog.Errorf("Task [%s]: could not intialize resource: %v", task.Arn, err)
+			seelog.Errorf("Task [%s]: could not intialifze resource: %v", task.Arn, err)
 			return apierrors.NewResourceInitError(task.Arn, err)
 		}
 	}
