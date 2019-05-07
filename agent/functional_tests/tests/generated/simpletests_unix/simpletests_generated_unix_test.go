@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/aws/amazon-ecs-agent/agent/functional_tests/util"
 )
 
 // TestAddAndDropCapabilities checks that adding and dropping Linux capabilities work
