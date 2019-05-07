@@ -51,7 +51,7 @@ func TestAddAndDropCapabilities(t *testing.T) {
 		for i := 0; i < 1; i++ {
 			tmpTask, err := agent.StartAWSVPCTask("add-drop-capabilities", nil)
 			if err != nil {
-				t.Fatalf("Could not start task in awsvpc mode unfortunately: %v", err)
+				t.Fatalf("Could not start tasks in awsvpc mode unfortunately: %v", err)
 			}
 			testTasks = append(testTasks, tmpTask)
 		}
