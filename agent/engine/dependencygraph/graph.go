@@ -46,7 +46,7 @@ const (
 var (
 	// CredentialsNotResolvedErr is the error where a container needs to wait for
 	// credentials before it can process by agent
-	CredentialsNotResolvedErr = errors.New("dependency graphddddddddddddddddcdddddddddddd: containers execution credentials not available")
+	CredentialsNotResolvedErr = errors.New("dependency graphddddddddddddddddcddddddddddddd: containers execution credentials not available")
 	// DependentContainerNotResolvedErr is the error where a dependent container isn't in expected state
 	DependentContainerNotResolvedErr = errors.New("dependency graph: dependent container not in expected state")
 	// ContainerPastDesiredStatusErr is the error where the container status is bigger than desired status
