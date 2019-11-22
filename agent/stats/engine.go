@@ -13,7 +13,7 @@
 
 package stats
 
-//go:generate go run ../../scripts/generate/mockgen.go github.com/aws/amazon-ecs-agent/agent/stats Engine mock/$GOFILE
+//go:generate mockgen -destination=mock/$GOFILE -copyright_file=../../scripts/copyright_file github.com/aws/amazon-ecs-agent/agent/stats Engine
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/cihub/seelog"
-	docker "github.com/fsouza/go-dockerclient"
 	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
 
@@ -37,12 +36,14 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/stats/resolver"
 	"github.com/aws/amazon-ecs-agent/agent/tcs/model/ecstcs"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/docker/docker/api/types"
 )
 
 const (
 	containerChangeHandler = "DockerStatsEngineDockerEventsHandler"
-	listContainersTimeout  = 10 * time.Minute
-	queueResetThreshold    = 2 * dockerapi.StatsInactivityTimeout
+	queueResetThreshold    = 2 * dockerclient.StatsInactivityTimeout
+	hostNetworkMode        = "host"
+	noneNetworkMode        = "none"
 )
 
 var (
@@ -64,7 +65,7 @@ type DockerContainerMetadataResolver struct {
 // defined to make testing easier.
 type Engine interface {
 	GetInstanceMetrics() (*ecstcs.MetricsMetadata, []*ecstcs.TaskMetric, error)
-	ContainerDockerStats(taskARN string, containerID string) (*docker.Stats, error)
+	ContainerDockerStats(taskARN string, containerID string) (*types.StatsJSON, error)
 	GetTaskHealthMetrics() (*ecstcs.HealthMetadata, []*ecstcs.TaskHealth, error)
 }
 
@@ -247,8 +248,12 @@ func (engine *DockerStatsEngine) addContainerUnsafe(dockerID string) (*StatsCont
 		return nil, errors.Errorf("stats add container: task is terminal, ignoring container: %s, task: %s", dockerID, task.Arn)
 	}
 
+	statsContainer, err := newStatsContainer(dockerID, engine.client, engine.resolver)
+	if err != nil {
+		return nil, errors.Wrapf(err, "could not map docker container ID to container, ignoring container: %s", dockerID)
+	}
+
 	seelog.Debugf("Adding container to stats watch list, id: %s, task: %s", dockerID, task.Arn)
-	statsContainer := newStatsContainer(dockerID, engine.client, engine.resolver)
 	engine.tasksToDefinitions[task.Arn] = &taskDefinition{family: task.Family, version: task.Version}
 
 	watchStatsContainer := false
@@ -595,18 +600,42 @@ func (engine *DockerStatsEngine) taskContainerMetricsUnsafe(taskArn string) ([]*
 			continue
 		}
 
-		// Get memory stats set.
 		memoryStatsSet, err := container.statsQueue.GetMemoryStatsSet()
 		if err != nil {
 			seelog.Warnf("Error getting memory stats, err: %v, container: %v", err, dockerID)
 			continue
 		}
 
-		containerMetrics = append(containerMetrics, &ecstcs.ContainerMetric{
+		containerMetric := &ecstcs.ContainerMetric{
+			ContainerName:  &container.containerMetadata.Name,
 			CpuStatsSet:    cpuStatsSet,
 			MemoryStatsSet: memoryStatsSet,
-		})
+		}
 
+		task, err := engine.resolver.ResolveTask(dockerID)
+		if err != nil {
+			seelog.Warnf("Task not found for container ID: %s", dockerID)
+		} else {
+			// send network stats for default/bridge/nat network modes
+			if !task.IsNetworkModeAWSVPC() &&
+				container.containerMetadata.NetworkMode != hostNetworkMode &&
+				container.containerMetadata.NetworkMode != noneNetworkMode {
+				networkStatsSet, err := container.statsQueue.GetNetworkStatsSet()
+				if err != nil {
+					// we log the error and still continue to publish cpu, memory stats
+					seelog.Warnf("Error getting network stats: %v, container: %v", err, dockerID)
+				}
+				containerMetric.NetworkStatsSet = networkStatsSet
+			}
+		}
+
+		storageStatsSet, err := container.statsQueue.GetStorageStatsSet()
+		if err != nil {
+			seelog.Warnf("Error getting storage stats, err: %v, container: %v", err, dockerID)
+		}
+		containerMetric.StorageStatsSet = storageStatsSet
+
+		containerMetrics = append(containerMetrics, containerMetric)
 	}
 
 	return containerMetrics, nil
@@ -649,7 +678,7 @@ func (engine *DockerStatsEngine) resetStatsUnsafe() {
 }
 
 // ContainerDockerStats returns the last stored raw docker stats object for a container
-func (engine *DockerStatsEngine) ContainerDockerStats(taskARN string, containerID string) (*docker.Stats, error) {
+func (engine *DockerStatsEngine) ContainerDockerStats(taskARN string, containerID string) (*types.StatsJSON, error) {
 	engine.lock.RLock()
 	defer engine.lock.RUnlock()
 

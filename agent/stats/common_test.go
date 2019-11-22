@@ -14,6 +14,7 @@
 package stats
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -27,10 +28,10 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
 	"github.com/aws/amazon-ecs-agent/agent/tcs/model/ecstcs"
 
-	"context"
-
 	"github.com/aws/aws-sdk-go/aws"
-	docker "github.com/fsouza/go-dockerclient"
+	dockercontainer "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	sdkClient "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +43,7 @@ const (
 	testContainerHealthImageName = "amazon/amazon-ecs-containerhealthcheck:make"
 
 	// defaultDockerTimeoutSeconds is the timeout for dialing the docker remote API.
-	defaultDockerTimeoutSeconds uint = 10
+	defaultDockerTimeoutSeconds = time.Second * 10
 
 	// waitForCleanupSleep is the sleep duration in milliseconds
 	// for the waiting after container cleanup before checking the state of the manager.
@@ -62,6 +63,7 @@ var (
 
 func init() {
 	cfg.EngineAuthData = config.NewSensitiveRawMessage([]byte{})
+	cfg.ImagePullBehavior = config.ImagePullPreferCachedBehavior
 }
 
 // eventStream returns the event stream used to receive container change events
@@ -73,24 +75,30 @@ func eventStream(name string) *eventstream.EventStream {
 
 // createGremlin creates the gremlin container using the docker client.
 // It is used only in the test code.
-func createGremlin(client *docker.Client) (*docker.Container, error) {
-	container, err := client.CreateContainer(docker.CreateContainerOptions{
-		Config: &docker.Config{
+func createGremlin(client *sdkClient.Client, netMode string) (*dockercontainer.ContainerCreateCreatedBody, error) {
+	containerGremlin, err := client.ContainerCreate(context.TODO(),
+		&dockercontainer.Config{
 			Image: testImageName,
 		},
-	})
+		&dockercontainer.HostConfig{
+			NetworkMode: dockercontainer.NetworkMode(netMode),
+		},
+		&network.NetworkingConfig{},
+		"")
 
-	return container, err
+	return &containerGremlin, err
 }
 
-func createHealthContainer(client *docker.Client) (*docker.Container, error) {
-	container, err := client.CreateContainer(docker.CreateContainerOptions{
-		Config: &docker.Config{
+func createHealthContainer(client *sdkClient.Client) (*dockercontainer.ContainerCreateCreatedBody, error) {
+	container, err := client.ContainerCreate(context.TODO(),
+		&dockercontainer.Config{
 			Image: testContainerHealthImageName,
 		},
-	})
+		&dockercontainer.HostConfig{},
+		&network.NetworkingConfig{},
+		"")
 
-	return container, err
+	return &container, err
 }
 
 type IntegContainerMetadataResolver struct {
@@ -142,11 +150,20 @@ func validateContainerMetrics(containerMetrics []*ecstcs.ContainerMetric, expect
 		return fmt.Errorf("Mismatch in number of ContainerStatsSet elements. Expected: %d, Got: %d", expected, len(containerMetrics))
 	}
 	for _, containerMetric := range containerMetrics {
+		if *containerMetric.ContainerName == "" {
+			return fmt.Errorf("ContainerName is empty")
+		}
 		if containerMetric.CpuStatsSet == nil {
 			return fmt.Errorf("CPUStatsSet is nil")
 		}
 		if containerMetric.MemoryStatsSet == nil {
 			return fmt.Errorf("MemoryStatsSet is nil")
+		}
+		if containerMetric.NetworkStatsSet == nil {
+			return fmt.Errorf("NetworkStatsSet is nil")
+		}
+		if containerMetric.StorageStatsSet == nil {
+			return fmt.Errorf("StorageStatsSet is nil")
 		}
 	}
 	return nil
@@ -241,9 +258,19 @@ func validateEmptyTaskHealthMetrics(t *testing.T, engine *DockerStatsEngine) {
 }
 
 func createFakeContainerStats() []*ContainerStats {
+	netStats := &NetworkStats{
+		RxBytes:   796,
+		RxDropped: 6,
+		RxErrors:  0,
+		RxPackets: 10,
+		TxBytes:   8192,
+		TxDropped: 5,
+		TxErrors:  0,
+		TxPackets: 60,
+	}
 	return []*ContainerStats{
-		{22400432, 1839104, parseNanoTime("2015-02-12T21:22:05.131117533Z")},
-		{116499979, 3649536, parseNanoTime("2015-02-12T21:22:05.232291187Z")},
+		{22400432, 1839104, uint64(100), uint64(200), netStats, parseNanoTime("2015-02-12T21:22:05.131117533Z")},
+		{116499979, 3649536, uint64(300), uint64(400), netStats, parseNanoTime("2015-02-12T21:22:05.232291187Z")},
 	}
 }
 

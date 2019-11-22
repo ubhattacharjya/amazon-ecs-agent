@@ -18,19 +18,19 @@ package task
 import (
 	"errors"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	"github.com/cihub/seelog"
-	docker "github.com/fsouza/go-dockerclient"
+	dockercontainer "github.com/docker/docker/api/types/container"
 )
 
 const (
-	//memorySwappinessDefault is the expected default value for this platform
-	memorySwappinessDefault = -1
 	// cpuSharesPerCore represents the cpu shares of a cpu core in docker
 	cpuSharesPerCore  = 1024
 	percentageFactor  = 100
@@ -74,13 +74,41 @@ func (task *Task) downcaseAllVolumePaths() {
 }
 
 func getCanonicalPath(path string) string {
-	return filepath.Clean(strings.ToLower(path))
+	lowercasedPath := strings.ToLower(path)
+	// if the path is a bare drive like "d:", don't filepath.Clean it because it will add a '.'.
+	// this is to fix the case where mounting from D:\ to D: is supported by docker but not ecs
+	if isBareDrive(lowercasedPath) {
+		return lowercasedPath
+	}
+
+	if isNamedPipesPath(lowercasedPath) {
+		return lowercasedPath
+	}
+
+	return filepath.Clean(lowercasedPath)
+}
+
+func isBareDrive(path string) bool {
+	if filepath.VolumeName(path) == path {
+		return true
+	}
+
+	return false
+}
+
+func isNamedPipesPath(path string) bool {
+	matched, err := regexp.MatchString(`\\{2}\.[\\]pipe[\\].+`, path)
+
+	if err != nil {
+		return false
+	}
+
+	return matched
 }
 
 // platformHostConfigOverride provides an entry point to set up default HostConfig options to be
 // passed to Docker API.
-func (task *Task) platformHostConfigOverride(hostConfig *docker.HostConfig) error {
-	task.overrideDefaultMemorySwappiness(hostConfig)
+func (task *Task) platformHostConfigOverride(hostConfig *dockercontainer.HostConfig) error {
 	// Convert the CPUShares to CPUPercent
 	hostConfig.CPUPercent = hostConfig.CPUShares * percentageFactor / int64(cpuShareScaleFactor)
 	if hostConfig.CPUPercent == 0 && hostConfig.CPUShares != 0 {
@@ -92,16 +120,6 @@ func (task *Task) platformHostConfigOverride(hostConfig *docker.HostConfig) erro
 	}
 	hostConfig.CPUShares = 0
 	return nil
-}
-
-// overrideDefaultMemorySwappiness Overrides the value of MemorySwappiness to -1
-// Version 1.12.x of Docker for Windows would ignore the unsupported option MemorySwappiness.
-// Version 17.03.x will cause an error if any value other than -1 is passed in for MemorySwappiness.
-// This bug is not noticed when no value is passed in. However, the go-dockerclient client version
-// we are using removed the json option omitempty causing this parameter to default to 0 if empty.
-// https://github.com/fsouza/go-dockerclient/commit/72342f96fabfa614a94b6ca57d987eccb8a836bf
-func (task *Task) overrideDefaultMemorySwappiness(hostConfig *docker.HostConfig) {
-	hostConfig.MemorySwappiness = memorySwappinessDefault
 }
 
 // dockerCPUShares converts containerCPU shares if needed as per the logic stated below:
@@ -118,6 +136,6 @@ func (task *Task) dockerCPUShares(containerCPU uint) int64 {
 	return int64(containerCPU)
 }
 
-func (task *Task) initializeCgroupResourceSpec(cgroupPath string, resourceFields *taskresource.ResourceFields) error {
+func (task *Task) initializeCgroupResourceSpec(cgroupPath string, cGroupCPUPeriod time.Duration, resourceFields *taskresource.ResourceFields) error {
 	return errors.New("unsupported platform")
 }

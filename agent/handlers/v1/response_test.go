@@ -1,3 +1,5 @@
+// +build unit
+
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
@@ -21,7 +23,7 @@ import (
 	apieni "github.com/aws/amazon-ecs-agent/agent/api/eni"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
-	docker "github.com/fsouza/go-dockerclient"
+	"github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -82,10 +84,12 @@ func TestTaskResponse(t *testing.T) {
 		Version:             version,
 		DesiredStatusUnsafe: apitaskstatus.TaskRunning,
 		KnownStatusUnsafe:   apitaskstatus.TaskRunning,
-		ENI: &apieni.ENI{
-			IPV4Addresses: []*apieni.ENIIPV4Address{
-				{
-					Address: eniIPv4Address,
+		ENIs: []*apieni.ENI{
+			{
+				IPV4Addresses: []*apieni.ENIIPV4Address{
+					{
+						Address: eniIPv4Address,
+					},
 				},
 			},
 		},
@@ -99,7 +103,7 @@ func TestTaskResponse(t *testing.T) {
 				Protocol:      apicontainer.TransportProtocolTCP,
 			},
 		},
-		VolumesUnsafe: []docker.Mount{
+		VolumesUnsafe: []types.MountPoint{
 			{
 				Name:        volName,
 				Source:      volSource,
@@ -163,7 +167,7 @@ func TestContainerResponse(t *testing.T) {
 				Protocol:      apicontainer.TransportProtocolTCP,
 			},
 		},
-		VolumesUnsafe: []docker.Mount{
+		VolumesUnsafe: []types.MountPoint{
 			{
 				Name:        volName,
 				Source:      volSource,
@@ -224,7 +228,7 @@ func TestPortBindingsResponse(t *testing.T) {
 func TestVolumesResponse(t *testing.T) {
 	container := &apicontainer.Container{
 		Name: containerName,
-		VolumesUnsafe: []docker.Mount{
+		VolumesUnsafe: []types.MountPoint{
 			{
 				Name:        volName,
 				Source:      volSource,

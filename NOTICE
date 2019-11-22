@@ -1,5 +1,5 @@
 Amazon Elastic Container Service Agent
-Copyright 2014-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 
 **********************
@@ -14,6 +14,9 @@ This product includes software developed at Docker, Inc. (https://www.docker.com
 
 This product contains software (https://github.com/kr/pty) developed
 by Keith Rarick, licensed under the MIT License.
+
+This product contains software (https://github.com/fsouza/go-dockerclient) developed
+by Francisco Souza under the Apache License 2.0 (see: inactivity_timeout_handler.go)
 
 The following is courtesy of our legal counsel:
 

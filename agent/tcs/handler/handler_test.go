@@ -28,15 +28,17 @@ import (
 
 	"context"
 
-	"github.com/aws/amazon-ecs-agent/agent/api/mocks"
+	mock_api "github.com/aws/amazon-ecs-agent/agent/api/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/config"
+	mock_engine "github.com/aws/amazon-ecs-agent/agent/engine/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/eventstream"
-	"github.com/aws/amazon-ecs-agent/agent/tcs/client"
+	tcsclient "github.com/aws/amazon-ecs-agent/agent/tcs/client"
 	"github.com/aws/amazon-ecs-agent/agent/tcs/model/ecstcs"
+	"github.com/aws/amazon-ecs-agent/agent/version"
 	"github.com/aws/amazon-ecs-agent/agent/wsclient"
 	wsmock "github.com/aws/amazon-ecs-agent/agent/wsclient/mock/utils"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	docker "github.com/fsouza/go-dockerclient"
+	"github.com/docker/docker/api/types"
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +67,7 @@ func (*mockStatsEngine) GetInstanceMetrics() (*ecstcs.MetricsMetadata, []*ecstcs
 	return req.Metadata, req.TaskMetrics, nil
 }
 
-func (*mockStatsEngine) ContainerDockerStats(taskARN string, id string) (*docker.Stats, error) {
+func (*mockStatsEngine) ContainerDockerStats(taskARN string, id string) (*types.StatsJSON, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -73,25 +75,35 @@ func (*mockStatsEngine) GetTaskHealthMetrics() (*ecstcs.HealthMetadata, []*ecstc
 	return nil, nil, nil
 }
 
+// TestDisableMetrics tests the StartMetricsSession will return immediately if
+// the metrics was disabled
+func TestDisableMetrics(t *testing.T) {
+	params := TelemetrySessionParams{
+		Cfg: &config.Config{
+			DisableMetrics:           true,
+			DisableDockerHealthCheck: true,
+		},
+	}
+
+	StartMetricsSession(&params)
+}
+
 func TestFormatURL(t *testing.T) {
 	endpoint := "http://127.0.0.0.1/"
-	wsurl := formatURL(endpoint, testClusterArn, testInstanceArn)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	taskEngine := mock_engine.NewMockTaskEngine(ctrl)
 
+	taskEngine.EXPECT().Version().Return("Docker version result", nil)
+	wsurl := formatURL(endpoint, testClusterArn, testInstanceArn, taskEngine)
 	parsed, err := url.Parse(wsurl)
-	if err != nil {
-		t.Fatal("Should be able to parse url")
-	}
-
-	if parsed.Path != "/ws" {
-		t.Fatal("Wrong path")
-	}
-
-	if parsed.Query().Get("cluster") != testClusterArn {
-		t.Fatal("Wrong cluster")
-	}
-	if parsed.Query().Get("containerInstance") != testInstanceArn {
-		t.Fatal("Wrong cluster")
-	}
+	assert.NoError(t, err, "should be able to parse URL")
+	assert.Equal(t, "/ws", parsed.Path, "wrong path")
+	assert.Equal(t, testClusterArn, parsed.Query().Get("cluster"), "wrong cluster")
+	assert.Equal(t, testInstanceArn, parsed.Query().Get("containerInstance"), "wrong container instance")
+	assert.Equal(t, version.Version, parsed.Query().Get("agentVersion"), "wrong agent version")
+	assert.Equal(t, version.GitHashString(), parsed.Query().Get("agentHash"), "wrong agent hash")
+	assert.Equal(t, "Docker version result", parsed.Query().Get("dockerVersion"), "wrong docker version")
 }
 
 func TestStartSession(t *testing.T) {
@@ -241,7 +253,7 @@ func TestDiscoverEndpointAndStartSession(t *testing.T) {
 	mockEcs := mock_api.NewMockECSClient(ctrl)
 	mockEcs.EXPECT().DiscoverTelemetryEndpoint(gomock.Any()).Return("", errors.New("error"))
 
-	err := startTelemetrySession(TelemetrySessionParams{ECSClient: mockEcs}, nil)
+	err := startTelemetrySession(&TelemetrySessionParams{ECSClient: mockEcs}, nil)
 	if err == nil {
 		t.Error("Expected error from startTelemetrySession when DiscoverTelemetryEndpoint returns error")
 	}

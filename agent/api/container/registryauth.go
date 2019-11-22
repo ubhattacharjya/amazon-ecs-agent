@@ -18,7 +18,7 @@ import (
 
 	"github.com/aws/amazon-ecs-agent/agent/credentials"
 
-	docker "github.com/fsouza/go-dockerclient"
+	"github.com/docker/docker/api/types"
 )
 
 // RegistryAuthenticationData is the authentication data sent by the ECS backend.  Currently, the only supported
@@ -36,6 +36,7 @@ type ECRAuthData struct {
 	RegistryID       string `json:"registryId"`
 	UseExecutionRole bool   `json:"useExecutionRole"`
 	pullCredentials  credentials.IAMRoleCredentials
+	dockerAuthConfig types.AuthConfig
 	lock             sync.RWMutex
 }
 
@@ -49,7 +50,7 @@ type ASMAuthData struct {
 	Region string `json:"region"`
 	// dockerAuthConfig gets populated during the ASM resource creation
 	// by the task engine
-	dockerAuthConfig docker.AuthConfiguration
+	dockerAuthConfig types.AuthConfig
 	lock             sync.RWMutex
 }
 
@@ -70,7 +71,24 @@ func (auth *ECRAuthData) SetPullCredentials(creds credentials.IAMRoleCredentials
 }
 
 // GetDockerAuthConfig returns the pull credentials in the auth
-func (auth *ASMAuthData) GetDockerAuthConfig() docker.AuthConfiguration {
+func (auth *ECRAuthData) GetDockerAuthConfig() types.AuthConfig {
+	auth.lock.RLock()
+	defer auth.lock.RUnlock()
+
+	return auth.dockerAuthConfig
+}
+
+// SetDockerAuthConfig sets the credentials to pull from ECR in the
+// ecr auth data
+func (auth *ECRAuthData) SetDockerAuthConfig(dac types.AuthConfig) {
+	auth.lock.Lock()
+	defer auth.lock.Unlock()
+
+	auth.dockerAuthConfig = dac
+}
+
+// GetDockerAuthConfig returns the pull credentials in the auth
+func (auth *ASMAuthData) GetDockerAuthConfig() types.AuthConfig {
 	auth.lock.RLock()
 	defer auth.lock.RUnlock()
 
@@ -79,7 +97,7 @@ func (auth *ASMAuthData) GetDockerAuthConfig() docker.AuthConfiguration {
 
 // SetDockerAuthConfig sets the credentials to pull from ECR in the
 // auth
-func (auth *ASMAuthData) SetDockerAuthConfig(dac docker.AuthConfiguration) {
+func (auth *ASMAuthData) SetDockerAuthConfig(dac types.AuthConfig) {
 	auth.lock.Lock()
 	defer auth.lock.Unlock()
 

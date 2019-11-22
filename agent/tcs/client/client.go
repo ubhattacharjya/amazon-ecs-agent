@@ -178,6 +178,7 @@ func (cs *clientServer) publishMetrics() {
 func (cs *clientServer) publishMetricsOnce() error {
 	// Get the list of objects to send to backend.
 	requests, err := cs.metricsToPublishMetricRequests()
+	seelog.Infof("the metrics requests are %v", requests)
 	if err != nil {
 		return err
 	}

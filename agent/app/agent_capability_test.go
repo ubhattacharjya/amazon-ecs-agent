@@ -27,10 +27,10 @@ import (
 	app_mocks "github.com/aws/amazon-ecs-agent/agent/app/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
-	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi/mocks"
+	mock_dockerapi "github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/ecscni"
-	"github.com/aws/amazon-ecs-agent/agent/ecscni/mocks"
-	"github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
+	mock_ecscni "github.com/aws/amazon-ecs-agent/agent/ecscni/mocks"
+	mock_mobypkgwrapper "github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper/mocks"
 	"github.com/aws/aws-sdk-go/aws"
 	aws_credentials "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/golang/mock/gomock"
@@ -110,6 +110,24 @@ func TestCapabilities(t *testing.T) {
 			},
 			{
 				Name: aws.String(attributePrefix + capabilityPrivateRegistryAuthASM),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilitySecretEnvSSM),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilitySecretLogDriverSSM),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilityECREndpoint),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilitySecretEnvASM),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilitySecretLogDriverASM),
+			},
+			{
+				Name: aws.String(attributePrefix + capabilityContainerOrdering),
 			},
 		}...)
 
@@ -585,6 +603,42 @@ func TestCapabilitiesContainerHealth(t *testing.T) {
 
 	_, ok := capMap["ecs.capability.container-health-check"]
 	assert.True(t, ok, "Could not find container health check capability when expected; got capabilities %v", capabilities)
+}
+
+func TestCapabilitiesContainerHealthDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := mock_dockerapi.NewMockDockerClient(ctrl)
+	mockMobyPlugins := mock_mobypkgwrapper.NewMockPlugins(ctrl)
+
+	client.EXPECT().SupportedVersions().Return([]dockerclient.DockerVersion{
+		dockerclient.Version_1_24,
+	})
+	client.EXPECT().KnownVersions().Return(nil)
+	mockMobyPlugins.EXPECT().Scan().AnyTimes().Return([]string{}, nil)
+	client.EXPECT().ListPluginsWithFilters(gomock.Any(), gomock.Any(), gomock.Any(),
+		gomock.Any()).AnyTimes().Return([]string{}, nil)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	// Cancel the context to cancel async routines
+	defer cancel()
+	agent := &ecsAgent{
+		ctx:          ctx,
+		cfg:          &config.Config{DisableDockerHealthCheck: true},
+		dockerClient: client,
+		mobyPlugins:  mockMobyPlugins,
+	}
+
+	capabilities, err := agent.capabilities()
+	require.NoError(t, err)
+
+	capMap := make(map[string]bool)
+	for _, capability := range capabilities {
+		capMap[aws.StringValue(capability.Name)] = true
+	}
+
+	assert.NotContains(t, "ecs.capability.container-health-check", "Find container health check capability unexpected when it is disabled")
 }
 
 func TestCapabilitesListPluginsErrorCase(t *testing.T) {

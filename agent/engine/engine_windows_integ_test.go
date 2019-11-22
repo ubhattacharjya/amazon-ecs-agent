@@ -16,6 +16,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -31,11 +32,12 @@ import (
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/agent/api/container/status"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/aws-sdk-go/aws"
-	docker "github.com/fsouza/go-dockerclient"
+	sdkClient "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +46,7 @@ const (
 	dockerEndpoint              = "npipe:////./pipe/docker_engine"
 	testVolumeImage             = "amazon/amazon-ecs-volumes-test:make"
 	testRegistryImage           = "amazon/amazon-ecs-netkitten:make"
-	testHelloworldImage         = "cggruszka/microsoft-windows-helloworld:latest"
+	testBaseImage               = "amazon-ecs-ftest-windows-base:make"
 	dockerVolumeDirectoryFormat = "c:\\ProgramData\\docker\\volumes\\%s\\_data"
 )
 
@@ -56,12 +58,18 @@ func isDockerRunning() bool { return true }
 func createTestContainer() *apicontainer.Container {
 	return &apicontainer.Container{
 		Name:                "windows",
-		Image:               "microsoft/windowsservercore:latest",
+		Image:               testBaseImage,
 		Essential:           true,
 		DesiredStatusUnsafe: apicontainerstatus.ContainerRunning,
 		CPU:                 512,
 		Memory:              256,
 	}
+}
+
+// getLongRunningCommand returns the command that keeps the container running for the container
+// that uses the default integ test image (amazon-ecs-ftest-windows-base:make for windows)
+func getLongRunningCommand() []string {
+	return []string{"ping", "-t", "localhost"}
 }
 
 func createTestHostVolumeMountTask(tmpPath string) *apitask.Task {
@@ -94,19 +102,12 @@ func createTestHealthCheckTask(arn string) *apitask.Task {
 		DesiredStatusUnsafe: apitaskstatus.TaskRunning,
 		Containers:          []*apicontainer.Container{createTestContainer()},
 	}
-	testTask.Containers[0].Image = "microsoft/nanoserver:latest"
+	testTask.Containers[0].Image = testBaseImage
 	testTask.Containers[0].Name = "test-health-check"
 	testTask.Containers[0].HealthCheckType = "docker"
 	testTask.Containers[0].Command = []string{"powershell", "-command", "Start-Sleep -s 300"}
 	testTask.Containers[0].DockerConfig = apicontainer.DockerConfig{
-		Config: aws.String(`{
-			"HealthCheck":{
-				"Test":["CMD-SHELL", "echo hello"],
-				"Interval":100000000,
-				"Timeout":100000000,
-				"StartPeriod":100000000,
-				"Retries":3}
-		}`),
+		Config: aws.String(alwaysHealthyHealthCheckConfig),
 	}
 	return testTask
 }
@@ -157,8 +158,8 @@ func createVolumeTask(scope, arn, volume string, autoprovision bool) (*apitask.T
 // TODO Modify the container ip to localhost after the AMI has the required feature
 // https://github.com/docker/for-win/issues/204#issuecomment-352899657
 
-func getContainerIP(client *docker.Client, id string) (string, error) {
-	dockerContainer, err := client.InspectContainer(id)
+func getContainerIP(client *sdkClient.Client, id string) (string, error) {
+	dockerContainer, err := client.ContainerInspect(context.TODO(), id)
 	if err != nil {
 		return "", err
 	}
@@ -202,10 +203,11 @@ func TestStartStopUnpulledImage(t *testing.T) {
 	taskEngine, done, _ := setupWithDefaultConfig(t)
 	defer done()
 	// Ensure this image isn't pulled by deleting it
-	removeImage(t, testHelloworldImage)
+	baseImg := os.Getenv("BASE_IMAGE_NAME")
+	removeImage(t, baseImg)
 
 	testTask := createTestTask("testStartUnpulled")
-	testTask.Containers[0].Image = testHelloworldImage
+	testTask.Containers[0].Image = baseImg
 
 	stateChangeEvents := taskEngine.StateChangeEvents()
 
@@ -227,14 +229,14 @@ func TestStartStopUnpulledImage(t *testing.T) {
 // TestStartStopUnpulledImageDigest ensures that an unpulled image with
 // specified digest is successfully pulled, run, and stopped via docker.
 func TestStartStopUnpulledImageDigest(t *testing.T) {
-	imageDigest := "cggruszka/microsoft-windows-helloworld@sha256:89282ba3e122e461381eae854d142c6c4895fcc1087d4849dbe4786fb21018f8"
+	baseImgWithDigest := os.Getenv("BASE_IMAGE_NAME_WITH_DIGEST")
 	taskEngine, done, _ := setupWithDefaultConfig(t)
 	defer done()
 	// Ensure this image isn't pulled by deleting it
-	removeImage(t, imageDigest)
+	removeImage(t, baseImgWithDigest)
 
 	testTask := createTestTask("testStartUnpulledDigest")
-	testTask.Containers[0].Image = imageDigest
+	testTask.Containers[0].Image = baseImgWithDigest
 
 	stateChangeEvents := taskEngine.StateChangeEvents()
 
@@ -261,7 +263,7 @@ func TestPortForward(t *testing.T) {
 	defer done()
 
 	stateChangeEvents := taskEngine.StateChangeEvents()
-	client, _ := docker.NewClient(endpoint)
+	client, _ := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 
 	testArn := "testPortForwardFail"
 	testTask := createTestTask(testArn)
@@ -283,8 +285,11 @@ func TestPortForward(t *testing.T) {
 	_, err = net.DialTimeout("tcp", fmt.Sprintf("%s:%d", cip, containerPortOne), dialTimeout)
 	assert.Error(t, err, "Did not expect to be able to dial port %d but didn't get error", containerPortOne)
 
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
 	// Kill the existing container now to make the test run more quickly.
-	err = client.KillContainer(docker.KillContainerOptions{ID: cid})
+	err = client.ContainerKill(ctx, cid, "SIGKILL")
 	assert.NoError(t, err, "Could not kill container")
 
 	verifyTaskIsStopped(stateChangeEvents, testTask)
@@ -339,7 +344,7 @@ func TestMultiplePortForwards(t *testing.T) {
 	defer done()
 
 	stateChangeEvents := taskEngine.StateChangeEvents()
-	client, _ := docker.NewClient(endpoint)
+	client, _ := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 
 	// Forward it and make sure that works
 	testArn := "testMultiplePortForwards"
@@ -424,7 +429,7 @@ func TestDynamicPortForward(t *testing.T) {
 	}
 	assert.NotEqual(t, bindingFor24751, 0, "could not find the port mapping for %d", containerPortOne)
 
-	client, _ := docker.NewClient(endpoint)
+	client, _ := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 	containerMap, _ := taskEngine.(*DockerTaskEngine).state.ContainerMapByArn(testTask.Arn)
 	cid := containerMap[testTask.Containers[0].Name].DockerID
 	cip, err := getContainerIP(client, cid)
@@ -487,7 +492,7 @@ func TestMultipleDynamicPortForward(t *testing.T) {
 	assert.NotZero(t, bindingFor24751_1, "could not find the port mapping for ", containerPortOne)
 	assert.NotZero(t, bindingFor24751_2, "could not find the port mapping for ", containerPortOne)
 
-	client, _ := docker.NewClient(endpoint)
+	client, _ := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 	containerMap, _ := taskEngine.(*DockerTaskEngine).state.ContainerMapByArn(testTask.Arn)
 	cid := containerMap[testTask.Containers[0].Name].DockerID
 	cip, err := getContainerIP(client, cid)

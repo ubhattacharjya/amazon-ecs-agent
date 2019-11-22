@@ -21,15 +21,12 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	"github.com/cihub/seelog"
-	docker "github.com/fsouza/go-dockerclient"
+	dockercontainer "github.com/docker/docker/api/types/container"
 )
 
 const (
-	//memorySwappinessDefault is the expected default value for this platform. This is used in task_windows.go
-	//and is maintained here for unix default. Also used for testing
-	memorySwappinessDefault = 0
-
 	defaultCPUPeriod = 100 * time.Millisecond // 100ms
+
 	// With a 100ms CPU period, we can express 0.01 vCPU to 10 vCPUs
 	maxTaskVCPULimit = 10
 	// Reference: http://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDefinition.html
@@ -50,11 +47,11 @@ func (task *Task) adjustForPlatform(cfg *config.Config) {
 
 func getCanonicalPath(path string) string { return path }
 
-func (task *Task) initializeCgroupResourceSpec(cgroupPath string, resourceFields *taskresource.ResourceFields) error {
+func (task *Task) initializeCgroupResourceSpec(cgroupPath string, cGroupCPUPeriod time.Duration, resourceFields *taskresource.ResourceFields) error {
 	return nil
 }
 
-func (task *Task) platformHostConfigOverride(hostConfig *docker.HostConfig) error {
+func (task *Task) platformHostConfigOverride(hostConfig *dockercontainer.HostConfig) error {
 	return nil
 }
 

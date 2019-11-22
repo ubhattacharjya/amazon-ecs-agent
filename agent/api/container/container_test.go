@@ -17,6 +17,7 @@ package container
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -24,23 +25,25 @@ import (
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 
 	"github.com/aws/amazon-ecs-agent/agent/utils"
-	"github.com/fsouza/go-dockerclient"
+	dockercontainer "github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 )
 
 type configPair struct {
-	Container *Container
-	Config    *docker.Config
+	Container  *Container
+	Config     *dockercontainer.Config
+	HostConfig *dockercontainer.HostConfig
 }
 
 func (pair configPair) Equal() bool {
 	conf := pair.Config
 	cont := pair.Container
+	hostConf := pair.HostConfig
 
-	if (conf.Memory / 1024 / 1024) != int64(cont.Memory) {
+	if (hostConf.Memory / 1024 / 1024) != int64(cont.Memory) {
 		return false
 	}
-	if conf.CPUShares != int64(cont.CPU) {
+	if hostConf.CPUShares != int64(cont.CPU) {
 		return false
 	}
 	if conf.Image != cont.Image {
@@ -122,6 +125,7 @@ func TestIsInternal(t *testing.T) {
 		{&Container{Type: ContainerNormal}, false},
 		{&Container{Type: ContainerCNIPause}, true},
 		{&Container{Type: ContainerEmptyHostVolume}, true},
+		{&Container{Type: ContainerNamespacePause}, true},
 	}
 
 	for _, tc := range testCases {
@@ -175,7 +179,7 @@ func TestSetupExecutionRoleFlag(t *testing.T) {
 	}
 }
 
-func TestSetHealtStatus(t *testing.T) {
+func TestSetHealthStatus(t *testing.T) {
 	container := Container{}
 
 	// set the container status to be healthy
@@ -251,4 +255,403 @@ func TestShouldPullWithASMAuth(t *testing.T) {
 	}
 
 	assert.True(t, container.ShouldPullWithASMAuth())
+}
+
+func TestInjectV3MetadataEndpoint(t *testing.T) {
+	container := Container{
+		V3EndpointID: "myV3EndpointID",
+	}
+
+	container.InjectV3MetadataEndpoint()
+
+	assert.NotNil(t, container.Environment)
+	assert.Equal(t, container.Environment[MetadataURIEnvironmentVariableName],
+		fmt.Sprintf(MetadataURIFormat, "myV3EndpointID"))
+}
+
+func TestShouldCreateWithSSMSecret(t *testing.T) {
+	cases := []struct {
+		in  Container
+		out bool
+	}{
+		{Container{
+			Name:  "myName",
+			Image: "image:tag",
+			Secrets: []Secret{
+				Secret{
+					Provider:  "ssm",
+					Name:      "secret",
+					ValueFrom: "/test/secretName",
+				}},
+		}, true},
+		{Container{
+			Name:    "myName",
+			Image:   "image:tag",
+			Secrets: nil,
+		}, false},
+		{Container{
+			Name:  "myName",
+			Image: "image:tag",
+			Secrets: []Secret{
+				Secret{
+					Provider:  "asm",
+					Name:      "secret",
+					ValueFrom: "/test/secretName",
+				}},
+		}, false},
+	}
+
+	for _, test := range cases {
+		container := test.in
+		assert.Equal(t, test.out, container.ShouldCreateWithSSMSecret())
+	}
+}
+
+func TestMergeEnvironmentVariables(t *testing.T) {
+	cases := []struct {
+		Name                   string
+		InContainerEnvironment map[string]string
+		InEnvVarMap            map[string]string
+		OutEnvVarMap           map[string]string
+	}{
+		{
+			Name: "merge single item",
+			InContainerEnvironment: map[string]string{
+				"CONFIG1": "config1"},
+			InEnvVarMap: map[string]string{
+				"SECRET1": "secret1"},
+			OutEnvVarMap: map[string]string{
+				"CONFIG1": "config1",
+				"SECRET1": "secret1",
+			},
+		},
+
+		{
+			Name:                   "merge single item to nil container env var map",
+			InContainerEnvironment: nil,
+			InEnvVarMap: map[string]string{
+				"SECRET1": "secret1"},
+			OutEnvVarMap: map[string]string{
+				"SECRET1": "secret1",
+			},
+		},
+
+		{
+			Name: "merge zero items to existing container env var map",
+			InContainerEnvironment: map[string]string{
+				"CONFIG1": "config1"},
+			InEnvVarMap: map[string]string{},
+			OutEnvVarMap: map[string]string{
+				"CONFIG1": "config1",
+			},
+		},
+
+		{
+			Name: "merge nil to existing container env var map",
+			InContainerEnvironment: map[string]string{
+				"CONFIG1": "config1"},
+			InEnvVarMap: nil,
+			OutEnvVarMap: map[string]string{
+				"CONFIG1": "config1",
+			},
+		},
+
+		{
+			Name:                   "merge nil to nil container env var map",
+			InContainerEnvironment: nil,
+			InEnvVarMap:            nil,
+			OutEnvVarMap:           map[string]string{},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			container := Container{
+				Environment: c.InContainerEnvironment,
+			}
+
+			container.MergeEnvironmentVariables(c.InEnvVarMap)
+			mapEq := reflect.DeepEqual(c.OutEnvVarMap, container.Environment)
+			assert.True(t, mapEq)
+		})
+	}
+}
+
+func TestShouldCreateWithASMSecret(t *testing.T) {
+	cases := []struct {
+		in  Container
+		out bool
+	}{
+		{Container{
+			Name:  "myName",
+			Image: "image:tag",
+			Secrets: []Secret{
+				Secret{
+					Provider:  "asm",
+					Name:      "secret",
+					ValueFrom: "/test/secretName",
+				}},
+		}, true},
+		{Container{
+			Name:    "myName",
+			Image:   "image:tag",
+			Secrets: nil,
+		}, false},
+		{Container{
+			Name:  "myName",
+			Image: "image:tag",
+			Secrets: []Secret{
+				Secret{
+					Provider:  "ssm",
+					Name:      "secret",
+					ValueFrom: "/test/secretName",
+				}},
+		}, false},
+	}
+
+	for _, test := range cases {
+		container := test.in
+		assert.Equal(t, test.out, container.ShouldCreateWithASMSecret())
+	}
+}
+
+func TestHasSecret(t *testing.T) {
+	isEnvOrLogDriverSecret := func(s Secret) bool {
+		return s.Type == SecretTypeEnv || s.Target == SecretTargetLogDriver
+	}
+	isSSMLogDriverSecret := func(s Secret) bool {
+		return s.Provider == SecretProviderSSM && s.Target == SecretTargetLogDriver
+	}
+
+	testCases := []struct {
+		name    string
+		f       func(s Secret) bool
+		secrets []Secret
+		res     bool
+	}{
+		{
+			name: "test env secret",
+			f:    isEnvOrLogDriverSecret,
+			secrets: []Secret{
+				{
+					Provider:  "asm",
+					Name:      "secret",
+					Type:      "ENVIRONMENT_VARIABLE",
+					ValueFrom: "/test/secretName",
+				}},
+			res: true,
+		},
+		{
+			name: "test no secret",
+			f:    isEnvOrLogDriverSecret,
+		},
+		{
+			name: "test mount point secret",
+			f:    isEnvOrLogDriverSecret,
+			secrets: []Secret{
+				{
+					Provider:  "asm",
+					Name:      "secret",
+					Type:      "MOUNT_POINT",
+					ValueFrom: "/test/secretName",
+				}},
+			res: false,
+		},
+		{
+			name: "test log driver secret",
+			f:    isEnvOrLogDriverSecret,
+			secrets: []Secret{
+				{
+					Provider:  "asm",
+					Name:      "splunk-token",
+					ValueFrom: "/test/secretName",
+					Target:    "LOG_DRIVER",
+				}},
+			res: true,
+		},
+		{
+			name: "test secret provider ssm",
+			f:    isSSMLogDriverSecret,
+			secrets: []Secret{
+				{
+					Name:     "secret",
+					Provider: SecretProviderSSM,
+					Target:   SecretTargetLogDriver,
+				},
+			},
+			res: true,
+		},
+		{
+			name: "test wrong secret provider",
+			f:    isSSMLogDriverSecret,
+			secrets: []Secret{
+				{
+					Name:     "secret",
+					Provider: "dummy",
+					Target:   SecretTargetLogDriver,
+				},
+			},
+			res: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Container{
+				Name:    "c",
+				Secrets: tc.secrets,
+			}
+
+			assert.Equal(t, tc.res, c.HasSecret(tc.f))
+		})
+	}
+}
+
+func TestPerContainerTimeouts(t *testing.T) {
+	timeout := uint(10)
+	expectedTimeout := time.Duration(timeout) * time.Second
+
+	container := Container{
+		StartTimeout: timeout,
+		StopTimeout:  timeout,
+	}
+
+	assert.Equal(t, container.GetStartTimeout(), expectedTimeout)
+	assert.Equal(t, container.GetStopTimeout(), expectedTimeout)
+}
+
+func TestSetRuntimeIDInContainer(t *testing.T) {
+	container := Container{}
+	container.SetRuntimeID("asdfghjkl1234")
+	assert.Equal(t, "asdfghjkl1234", container.RuntimeID)
+	assert.Equal(t, "asdfghjkl1234", container.GetRuntimeID())
+}
+
+func TestSetImageDigestInContainer(t *testing.T) {
+	container := Container{}
+	container.SetImageDigest("sha256:123456789")
+	assert.Equal(t, "sha256:123456789", container.ImageDigest)
+	assert.Equal(t, "sha256:123456789", container.GetImageDigest())
+}
+
+func TestDependsOnContainer(t *testing.T) {
+	testCases := []struct {
+		name          string
+		container     *Container
+		dependsOnName string
+		dependsOn     bool
+	}{
+		{
+			name: "test DependsOnContainer positive case",
+			container: &Container{
+				Name: "container1",
+				DependsOnUnsafe: []DependsOn{
+					{
+						ContainerName: "container2",
+						Condition:     "START",
+					},
+				},
+			},
+			dependsOnName: "container2",
+			dependsOn:     true,
+		},
+		{
+			name: "test DependsOnContainer negative case",
+			container: &Container{
+				Name: "container1",
+				DependsOnUnsafe: []DependsOn{
+					{
+						ContainerName: "container2",
+						Condition:     "START",
+					},
+				},
+			},
+			dependsOnName: "container0",
+			dependsOn:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.dependsOn, tc.container.DependsOnContainer(tc.dependsOnName))
+		})
+	}
+}
+
+func TestAddContainerDependency(t *testing.T) {
+	container := &Container{
+		Name: "container1",
+	}
+	container.AddContainerDependency("container2", "START")
+
+	assert.Contains(t, container.DependsOnUnsafe, DependsOn{
+		ContainerName: "container2",
+		Condition:     "START",
+	})
+}
+
+func TestGetLogDriver(t *testing.T) {
+	getContainer := func(hostConfig string) *Container {
+		c := &Container{
+			Name: "c",
+		}
+		c.DockerConfig.HostConfig = &hostConfig
+		return c
+	}
+
+	testCases := []struct {
+		name      string
+		container *Container
+		logDriver string
+	}{
+		{
+			name:      "positive case",
+			container: getContainer(`{"LogConfig":{"Type":"logdriver"}}`),
+			logDriver: "logdriver",
+		},
+		{
+			name:      "negative case",
+			container: getContainer("invalid"),
+			logDriver: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.logDriver, tc.container.GetLogDriver())
+		})
+	}
+}
+
+func TestGetNetworkModeFromHostConfig(t *testing.T) {
+	getContainer := func(hostConfig string) *Container {
+		c := &Container{
+			Name: "c",
+		}
+		c.DockerConfig.HostConfig = &hostConfig
+		return c
+	}
+
+	testCases := []struct {
+		name           string
+		container      *Container
+		expectedOutput string
+	}{
+		{
+			name:           "bridge mode",
+			container:      getContainer("{\"NetworkMode\":\"bridge\"}"),
+			expectedOutput: "bridge",
+		},
+		{
+			name:           "invalid case",
+			container:      getContainer("invalid"),
+			expectedOutput: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectedOutput, tc.container.GetNetworkModeFromHostConfig())
+		})
+	}
 }

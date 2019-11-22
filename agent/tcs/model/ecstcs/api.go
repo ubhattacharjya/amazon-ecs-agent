@@ -1,4 +1,4 @@
-// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -14,9 +14,11 @@
 package ecstcs
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/aws/aws-sdk-go/aws/request"
 )
 
 type AckPublishHealth struct {
@@ -54,7 +56,7 @@ func (s AckPublishMetric) GoString() string {
 type BadRequestException struct {
 	_ struct{} `type:"structure"`
 
-	Message *string `locationName:"message" type:"string"`
+	Message_ *string `locationName:"message" type:"string"`
 }
 
 // String returns the string representation
@@ -96,7 +98,7 @@ type ContainerHealth struct {
 
 	HealthStatus *string `locationName:"healthStatus" type:"string" enum:"HealthStatus"`
 
-	StatusSince *time.Time `locationName:"statusSince" type:"timestamp" timestampFormat:"unix"`
+	StatusSince *time.Time `locationName:"statusSince" type:"timestamp"`
 }
 
 // String returns the string representation
@@ -112,9 +114,17 @@ func (s ContainerHealth) GoString() string {
 type ContainerMetric struct {
 	_ struct{} `type:"structure"`
 
+	ContainerArn *string `locationName:"containerArn" type:"string"`
+
+	ContainerName *string `locationName:"containerName" type:"string"`
+
 	CpuStatsSet *CWStatsSet `locationName:"cpuStatsSet" type:"structure"`
 
 	MemoryStatsSet *CWStatsSet `locationName:"memoryStatsSet" type:"structure"`
+
+	NetworkStatsSet *NetworkStatsSet `locationName:"networkStatsSet" type:"structure"`
+
+	StorageStatsSet *StorageStatsSet `locationName:"storageStatsSet" type:"structure"`
 }
 
 // String returns the string representation
@@ -125,6 +135,26 @@ func (s ContainerMetric) String() string {
 // GoString returns the string representation
 func (s ContainerMetric) GoString() string {
 	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *ContainerMetric) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "ContainerMetric"}
+	if s.NetworkStatsSet != nil {
+		if err := s.NetworkStatsSet.Validate(); err != nil {
+			invalidParams.AddNested("NetworkStatsSet", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.StorageStatsSet != nil {
+		if err := s.StorageStatsSet.Validate(); err != nil {
+			invalidParams.AddNested("StorageStatsSet", err.(request.ErrInvalidParams))
+		}
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
 }
 
 type HealthMetadata struct {
@@ -146,6 +176,22 @@ func (s HealthMetadata) String() string {
 
 // GoString returns the string representation
 func (s HealthMetadata) GoString() string {
+	return s.String()
+}
+
+type HeartbeatInput struct {
+	_ struct{} `type:"structure"`
+
+	Healthy *bool `locationName:"healthy" type:"boolean"`
+}
+
+// String returns the string representation
+func (s HeartbeatInput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s HeartbeatInput) GoString() string {
 	return s.String()
 }
 
@@ -182,7 +228,7 @@ func (s HeartbeatOutput) GoString() string {
 type InvalidParameterException struct {
 	_ struct{} `type:"structure"`
 
-	Message *string `locationName:"message" type:"string"`
+	Message_ *string `locationName:"message" type:"string"`
 }
 
 // String returns the string representation
@@ -219,6 +265,122 @@ func (s MetricsMetadata) GoString() string {
 	return s.String()
 }
 
+type NetworkStatsSet struct {
+	_ struct{} `type:"structure"`
+
+	RxBytes *ULongStatsSet `locationName:"rxBytes" type:"structure"`
+
+	RxDropped *ULongStatsSet `locationName:"rxDropped" type:"structure"`
+
+	RxErrors *ULongStatsSet `locationName:"rxErrors" type:"structure"`
+
+	RxPackets *ULongStatsSet `locationName:"rxPackets" type:"structure"`
+
+	TxBytes *ULongStatsSet `locationName:"txBytes" type:"structure"`
+
+	TxDropped *ULongStatsSet `locationName:"txDropped" type:"structure"`
+
+	TxErrors *ULongStatsSet `locationName:"txErrors" type:"structure"`
+
+	TxPackets *ULongStatsSet `locationName:"txPackets" type:"structure"`
+}
+
+// String returns the string representation
+func (s NetworkStatsSet) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s NetworkStatsSet) GoString() string {
+	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *NetworkStatsSet) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "NetworkStatsSet"}
+	if s.RxBytes != nil {
+		if err := s.RxBytes.Validate(); err != nil {
+			invalidParams.AddNested("RxBytes", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.RxDropped != nil {
+		if err := s.RxDropped.Validate(); err != nil {
+			invalidParams.AddNested("RxDropped", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.RxErrors != nil {
+		if err := s.RxErrors.Validate(); err != nil {
+			invalidParams.AddNested("RxErrors", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.RxPackets != nil {
+		if err := s.RxPackets.Validate(); err != nil {
+			invalidParams.AddNested("RxPackets", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.TxBytes != nil {
+		if err := s.TxBytes.Validate(); err != nil {
+			invalidParams.AddNested("TxBytes", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.TxDropped != nil {
+		if err := s.TxDropped.Validate(); err != nil {
+			invalidParams.AddNested("TxDropped", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.TxErrors != nil {
+		if err := s.TxErrors.Validate(); err != nil {
+			invalidParams.AddNested("TxErrors", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.TxPackets != nil {
+		if err := s.TxPackets.Validate(); err != nil {
+			invalidParams.AddNested("TxPackets", err.(request.ErrInvalidParams))
+		}
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
+}
+
+type PublishHealthInput struct {
+	_ struct{} `type:"structure"`
+
+	Metadata *HealthMetadata `locationName:"metadata" type:"structure"`
+
+	Tasks []*TaskHealth `locationName:"tasks" type:"list"`
+
+	Timestamp *time.Time `locationName:"timestamp" type:"timestamp"`
+}
+
+// String returns the string representation
+func (s PublishHealthInput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s PublishHealthInput) GoString() string {
+	return s.String()
+}
+
+type PublishHealthOutput struct {
+	_ struct{} `type:"structure"`
+
+	Message *string `locationName:"message" type:"string"`
+}
+
+// String returns the string representation
+func (s PublishHealthOutput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s PublishHealthOutput) GoString() string {
+	return s.String()
+}
+
 type PublishHealthRequest struct {
 	_ struct{} `type:"structure"`
 
@@ -226,7 +388,7 @@ type PublishHealthRequest struct {
 
 	Tasks []*TaskHealth `locationName:"tasks" type:"list"`
 
-	Timestamp *time.Time `locationName:"timestamp" type:"timestamp" timestampFormat:"unix"`
+	Timestamp *time.Time `locationName:"timestamp" type:"timestamp"`
 }
 
 // String returns the string representation
@@ -239,6 +401,62 @@ func (s PublishHealthRequest) GoString() string {
 	return s.String()
 }
 
+type PublishMetricsInput struct {
+	_ struct{} `type:"structure"`
+
+	Metadata *MetricsMetadata `locationName:"metadata" type:"structure"`
+
+	TaskMetrics []*TaskMetric `locationName:"taskMetrics" type:"list"`
+
+	Timestamp *time.Time `locationName:"timestamp" type:"timestamp"`
+}
+
+// String returns the string representation
+func (s PublishMetricsInput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s PublishMetricsInput) GoString() string {
+	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *PublishMetricsInput) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "PublishMetricsInput"}
+	if s.TaskMetrics != nil {
+		for i, v := range s.TaskMetrics {
+			if v == nil {
+				continue
+			}
+			if err := v.Validate(); err != nil {
+				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "TaskMetrics", i), err.(request.ErrInvalidParams))
+			}
+		}
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
+}
+
+type PublishMetricsOutput struct {
+	_ struct{} `type:"structure"`
+
+	Message *string `locationName:"message" type:"string"`
+}
+
+// String returns the string representation
+func (s PublishMetricsOutput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s PublishMetricsOutput) GoString() string {
+	return s.String()
+}
+
 type PublishMetricsRequest struct {
 	_ struct{} `type:"structure"`
 
@@ -246,7 +464,7 @@ type PublishMetricsRequest struct {
 
 	TaskMetrics []*TaskMetric `locationName:"taskMetrics" type:"list"`
 
-	Timestamp *time.Time `locationName:"timestamp" type:"timestamp" timestampFormat:"unix"`
+	Timestamp *time.Time `locationName:"timestamp" type:"timestamp"`
 }
 
 // String returns the string representation
@@ -262,7 +480,7 @@ func (s PublishMetricsRequest) GoString() string {
 type ResourceValidationException struct {
 	_ struct{} `type:"structure"`
 
-	Message *string `locationName:"message" type:"string"`
+	Message_ *string `locationName:"message" type:"string"`
 }
 
 // String returns the string representation
@@ -278,7 +496,7 @@ func (s ResourceValidationException) GoString() string {
 type ServerException struct {
 	_ struct{} `type:"structure"`
 
-	Message *string `locationName:"message" type:"string"`
+	Message_ *string `locationName:"message" type:"string"`
 }
 
 // String returns the string representation
@@ -288,6 +506,40 @@ func (s ServerException) String() string {
 
 // GoString returns the string representation
 func (s ServerException) GoString() string {
+	return s.String()
+}
+
+type StartTelemetrySessionInput struct {
+	_ struct{} `type:"structure"`
+
+	Cluster *string `locationName:"cluster" type:"string"`
+
+	ContainerInstance *string `locationName:"containerInstance" type:"string"`
+}
+
+// String returns the string representation
+func (s StartTelemetrySessionInput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s StartTelemetrySessionInput) GoString() string {
+	return s.String()
+}
+
+type StartTelemetrySessionOutput struct {
+	_ struct{} `type:"structure"`
+
+	Message *string `locationName:"message" type:"string"`
+}
+
+// String returns the string representation
+func (s StartTelemetrySessionOutput) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s StartTelemetrySessionOutput) GoString() string {
 	return s.String()
 }
 
@@ -323,6 +575,44 @@ func (s StopTelemetrySessionMessage) String() string {
 // GoString returns the string representation
 func (s StopTelemetrySessionMessage) GoString() string {
 	return s.String()
+}
+
+type StorageStatsSet struct {
+	_ struct{} `type:"structure"`
+
+	ReadSizeBytes *ULongStatsSet `locationName:"readSizeBytes" type:"structure"`
+
+	WriteSizeBytes *ULongStatsSet `locationName:"writeSizeBytes" type:"structure"`
+}
+
+// String returns the string representation
+func (s StorageStatsSet) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s StorageStatsSet) GoString() string {
+	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *StorageStatsSet) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "StorageStatsSet"}
+	if s.ReadSizeBytes != nil {
+		if err := s.ReadSizeBytes.Validate(); err != nil {
+			invalidParams.AddNested("ReadSizeBytes", err.(request.ErrInvalidParams))
+		}
+	}
+	if s.WriteSizeBytes != nil {
+		if err := s.WriteSizeBytes.Validate(); err != nil {
+			invalidParams.AddNested("WriteSizeBytes", err.(request.ErrInvalidParams))
+		}
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
 }
 
 type TaskHealth struct {
@@ -367,4 +657,78 @@ func (s TaskMetric) String() string {
 // GoString returns the string representation
 func (s TaskMetric) GoString() string {
 	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *TaskMetric) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "TaskMetric"}
+	if s.ContainerMetrics != nil {
+		for i, v := range s.ContainerMetrics {
+			if v == nil {
+				continue
+			}
+			if err := v.Validate(); err != nil {
+				invalidParams.AddNested(fmt.Sprintf("%s[%v]", "ContainerMetrics", i), err.(request.ErrInvalidParams))
+			}
+		}
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
+}
+
+type ULongStatsSet struct {
+	_ struct{} `type:"structure"`
+
+	// Max is a required field
+	Max *int64 `locationName:"max" type:"long" required:"true"`
+
+	// Min is a required field
+	Min *int64 `locationName:"min" type:"long" required:"true"`
+
+	OverflowMax *int64 `locationName:"overflowMax" type:"long"`
+
+	OverflowMin *int64 `locationName:"overflowMin" type:"long"`
+
+	OverflowSum *int64 `locationName:"overflowSum" type:"long"`
+
+	// SampleCount is a required field
+	SampleCount *int64 `locationName:"sampleCount" type:"long" required:"true"`
+
+	// Sum is a required field
+	Sum *int64 `locationName:"sum" type:"long" required:"true"`
+}
+
+// String returns the string representation
+func (s ULongStatsSet) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s ULongStatsSet) GoString() string {
+	return s.String()
+}
+
+// Validate inspects the fields of the type to determine if they are valid.
+func (s *ULongStatsSet) Validate() error {
+	invalidParams := request.ErrInvalidParams{Context: "ULongStatsSet"}
+	if s.Max == nil {
+		invalidParams.Add(request.NewErrParamRequired("Max"))
+	}
+	if s.Min == nil {
+		invalidParams.Add(request.NewErrParamRequired("Min"))
+	}
+	if s.SampleCount == nil {
+		invalidParams.Add(request.NewErrParamRequired("SampleCount"))
+	}
+	if s.Sum == nil {
+		invalidParams.Add(request.NewErrParamRequired("Sum"))
+	}
+
+	if invalidParams.Len() > 0 {
+		return invalidParams
+	}
+	return nil
 }

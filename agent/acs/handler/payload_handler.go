@@ -13,12 +13,12 @@
 package handler
 
 import (
-	"fmt"
-
 	"context"
+	"fmt"
 
 	"github.com/aws/amazon-ecs-agent/agent/acs/model/ecsacs"
 	"github.com/aws/amazon-ecs-agent/agent/api"
+	apiappmesh "github.com/aws/amazon-ecs-agent/agent/api/appmesh"
 	apieni "github.com/aws/amazon-ecs-agent/agent/api/eni"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
@@ -193,16 +193,17 @@ func (payloadHandler *payloadRequestHandler) addPayloadTasks(payload *ecsacs.Pay
 			allTasksOK = false
 			continue
 		}
+
 		if task.RoleCredentials != nil {
 			// The payload from ACS for the task has credentials for the
 			// task. Add those to the credentials manager and set the
 			// credentials id for the task as well
 			taskIAMRoleCredentials := credentials.IAMRoleCredentialsFromACS(task.RoleCredentials, credentials.ApplicationRoleType)
 			err = payloadHandler.credentialsManager.SetTaskCredentials(
-				credentials.TaskIAMRoleCredentials{
+				&(credentials.TaskIAMRoleCredentials{
 					ARN:                aws.StringValue(task.Arn),
 					IAMRoleCredentials: taskIAMRoleCredentials,
-				})
+				}))
 			if err != nil {
 				payloadHandler.handleUnrecognizedTask(task, err, payload)
 				allTasksOK = false
@@ -211,27 +212,38 @@ func (payloadHandler *payloadRequestHandler) addPayloadTasks(payload *ecsacs.Pay
 			apiTask.SetCredentialsID(taskIAMRoleCredentials.CredentialsID)
 		}
 
-		// Adding the eni information to the task struct
-		if len(task.ElasticNetworkInterfaces) != 0 {
-			eni, err := apieni.ENIFromACS(task.ElasticNetworkInterfaces)
+		// Add ENI information to the task struct.
+		for _, acsENI := range task.ElasticNetworkInterfaces {
+			eni, err := apieni.ENIFromACS(acsENI)
 			if err != nil {
 				payloadHandler.handleUnrecognizedTask(task, err, payload)
 				allTasksOK = false
 				continue
 			}
-
-			apiTask.SetTaskENI(eni)
+			apiTask.AddTaskENI(eni)
 		}
+
+		// Add the app mesh information to task struct
+		if task.ProxyConfiguration != nil {
+			appmesh, err := apiappmesh.AppMeshFromACS(task.ProxyConfiguration)
+			if err != nil {
+				payloadHandler.handleUnrecognizedTask(task, err, payload)
+				allTasksOK = false
+				continue
+			}
+			apiTask.SetAppMesh(appmesh)
+		}
+
 		if task.ExecutionRoleCredentials != nil {
 			// The payload message contains execution credentials for the task.
 			// Add the credentials to the credentials manager and set the
 			// task executionCredentials id.
 			taskExecutionIAMRoleCredentials := credentials.IAMRoleCredentialsFromACS(task.ExecutionRoleCredentials, credentials.ExecutionRoleType)
 			err = payloadHandler.credentialsManager.SetTaskCredentials(
-				credentials.TaskIAMRoleCredentials{
+				&(credentials.TaskIAMRoleCredentials{
 					ARN:                aws.StringValue(task.Arn),
 					IAMRoleCredentials: taskExecutionIAMRoleCredentials,
-				})
+				}))
 			if err != nil {
 				payloadHandler.handleUnrecognizedTask(task, err, payload)
 				allTasksOK = false
@@ -242,6 +254,7 @@ func (payloadHandler *payloadRequestHandler) addPayloadTasks(payload *ecsacs.Pay
 
 		validTasks = append(validTasks, apiTask)
 	}
+
 	// Add 'stop' transitions first to allow seqnum ordering to work out
 	// Because a 'start' sequence number should only be proceeded if all 'stop's
 	// of the same sequence number have completed, the 'start' events need to be
@@ -311,12 +324,12 @@ func (payloadHandler *payloadRequestHandler) ackCredentials(messageID *string, c
 // and returns the boolean comparison result
 type skipAddTaskComparatorFunc func(apitaskstatus.TaskStatus) bool
 
-// isTaskStatusStopped returns true if the task status == STOPPTED
+// isTaskStatusStopped returns true if the task status == STOPPED
 func isTaskStatusStopped(status apitaskstatus.TaskStatus) bool {
 	return status == apitaskstatus.TaskStopped
 }
 
-// isTaskStatusNotStopped returns true if the task status != STOPPTED
+// isTaskStatusNotStopped returns true if the task status != STOPPED
 func isTaskStatusNotStopped(status apitaskstatus.TaskStatus) bool {
 	return status != apitaskstatus.TaskStopped
 }

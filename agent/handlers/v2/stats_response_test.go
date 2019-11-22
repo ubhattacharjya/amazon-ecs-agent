@@ -19,9 +19,9 @@ import (
 	"testing"
 
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
-	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate/mocks"
-	"github.com/aws/amazon-ecs-agent/agent/stats/mock"
-	docker "github.com/fsouza/go-dockerclient"
+	mock_dockerstate "github.com/aws/amazon-ecs-agent/agent/engine/dockerstate/mocks"
+	mock_stats "github.com/aws/amazon-ecs-agent/agent/stats/mock"
+	"github.com/docker/docker/api/types"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
@@ -33,7 +33,8 @@ func TestTaskStatsResponseSuccess(t *testing.T) {
 	state := mock_dockerstate.NewMockTaskEngineState(ctrl)
 	statsEngine := mock_stats.NewMockEngine(ctrl)
 
-	dockerStats := &docker.Stats{NumProcs: 2}
+	dockerStats := &types.StatsJSON{}
+	dockerStats.NumProcs = 2
 	containerMap := map[string]*apicontainer.DockerContainer{
 		containerName: {
 			DockerID: containerID,

@@ -26,16 +26,12 @@ import (
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
 	resourcetype "github.com/aws/amazon-ecs-agent/agent/taskresource/types"
 	"github.com/cihub/seelog"
-	docker "github.com/fsouza/go-dockerclient"
+	dockercontainer "github.com/docker/docker/api/types/container"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 )
 
 const (
-	//memorySwappinessDefault is the expected default value for this platform. This is used in task_windows.go
-	//and is maintained here for unix default. Also used for testing
-	memorySwappinessDefault = 0
-
 	defaultCPUPeriod = 100 * time.Millisecond // 100ms
 	// With a 100ms CPU period, we can express 0.01 vCPU to 10 vCPUs
 	maxTaskVCPULimit = 10
@@ -55,12 +51,12 @@ func (task *Task) adjustForPlatform(cfg *config.Config) {
 	task.MemoryCPULimitsEnabled = cfg.TaskCPUMemLimit.Enabled()
 }
 
-func (task *Task) initializeCgroupResourceSpec(cgroupPath string, resourceFields *taskresource.ResourceFields) error {
+func (task *Task) initializeCgroupResourceSpec(cgroupPath string, cGroupCPUPeriod time.Duration, resourceFields *taskresource.ResourceFields) error {
 	cgroupRoot, err := task.BuildCgroupRoot()
 	if err != nil {
 		return errors.Wrapf(err, "cgroup resource: unable to determine cgroup root for task")
 	}
-	resSpec, err := task.BuildLinuxResourceSpec()
+	resSpec, err := task.BuildLinuxResourceSpec(cGroupCPUPeriod)
 	if err != nil {
 		return errors.Wrapf(err, "cgroup resource: unable to build resource spec for task")
 	}
@@ -89,13 +85,13 @@ func (task *Task) BuildCgroupRoot() (string, error) {
 }
 
 // BuildLinuxResourceSpec returns a linuxResources object for the task cgroup
-func (task *Task) BuildLinuxResourceSpec() (specs.LinuxResources, error) {
+func (task *Task) BuildLinuxResourceSpec(cGroupCPUPeriod time.Duration) (specs.LinuxResources, error) {
 	linuxResourceSpec := specs.LinuxResources{}
 
 	// If task level CPU limits are requested, set CPU quota + CPU period
 	// Else set CPU shares
 	if task.CPU > 0 {
-		linuxCPUSpec, err := task.buildExplicitLinuxCPUSpec()
+		linuxCPUSpec, err := task.buildExplicitLinuxCPUSpec(cGroupCPUPeriod)
 		if err != nil {
 			return specs.LinuxResources{}, err
 		}
@@ -120,13 +116,13 @@ func (task *Task) BuildLinuxResourceSpec() (specs.LinuxResources, error) {
 
 // buildExplicitLinuxCPUSpec builds CPU spec when task CPU limits are
 // explicitly requested
-func (task *Task) buildExplicitLinuxCPUSpec() (specs.LinuxCPU, error) {
+func (task *Task) buildExplicitLinuxCPUSpec(cGroupCPUPeriod time.Duration) (specs.LinuxCPU, error) {
 	if task.CPU > maxTaskVCPULimit {
 		return specs.LinuxCPU{},
 			errors.Errorf("task CPU spec builder: unsupported CPU limits, requested=%f, max-supported=%d",
 				task.CPU, maxTaskVCPULimit)
 	}
-	taskCPUPeriod := uint64(defaultCPUPeriod / time.Microsecond)
+	taskCPUPeriod := uint64(cGroupCPUPeriod / time.Microsecond)
 	taskCPUQuota := int64(task.CPU * float64(taskCPUPeriod))
 
 	// TODO: DefaultCPUPeriod only permits 10VCPUs.
@@ -188,14 +184,14 @@ func (task *Task) buildLinuxMemorySpec() (specs.LinuxMemory, error) {
 }
 
 // platformHostConfigOverride to override platform specific feature sets
-func (task *Task) platformHostConfigOverride(hostConfig *docker.HostConfig) error {
+func (task *Task) platformHostConfigOverride(hostConfig *dockercontainer.HostConfig) error {
 	// Override cgroup parent
 	return task.overrideCgroupParent(hostConfig)
 }
 
 // overrideCgroupParent updates hostconfig with cgroup parent when task cgroups
 // are enabled
-func (task *Task) overrideCgroupParent(hostConfig *docker.HostConfig) error {
+func (task *Task) overrideCgroupParent(hostConfig *dockercontainer.HostConfig) error {
 	task.lock.RLock()
 	defer task.lock.RUnlock()
 	if task.MemoryCPULimitsEnabled {

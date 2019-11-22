@@ -32,15 +32,19 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	"github.com/aws/amazon-ecs-agent/agent/credentials"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate"
 	taskresourcevolume "github.com/aws/amazon-ecs-agent/agent/taskresource/volume"
-	docker "github.com/fsouza/go-dockerclient"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	sdkClient "github.com/docker/docker/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	testDockerStopTimeout  = 2 * time.Second
+	testDockerStopTimeout  = 5 * time.Second
 	credentialsIDIntegTest = "credsid"
 	containerPortOne       = 24751
 	containerPortTwo       = 24752
@@ -48,6 +52,16 @@ const (
 	dialTimeout            = 200 * time.Millisecond
 	localhost              = "127.0.0.1"
 	waitForDockerDuration  = 50 * time.Millisecond
+	removeVolumeTimeout    = 5 * time.Second
+
+	alwaysHealthyHealthCheckConfig = `{
+			"HealthCheck":{
+				"Test":["CMD-SHELL", "echo hello"],
+				"Interval":100000000,
+				"Timeout":2000000000,
+				"StartPeriod":100000000,
+				"Retries":3}
+		}`
 )
 
 func init() {
@@ -70,11 +84,29 @@ func verifyTaskRunningStateChange(t *testing.T, taskEngine TaskEngine) {
 		"Expected task to be RUNNING")
 }
 
+func verifyTaskRunningStateChangeWithRuntimeID(t *testing.T, taskEngine TaskEngine) {
+	stateChangeEvents := taskEngine.StateChangeEvents()
+	event := <-stateChangeEvents
+	assert.Equal(t, event.(api.TaskStateChange).Status, apitaskstatus.TaskRunning,
+		"Expected task to be RUNNING")
+	assert.NotEqualf(t, "", event.(api.TaskStateChange).Task.Containers[0].RuntimeID,
+		"Expected task with runtimeID per container should not empty when Running")
+}
+
 func verifyTaskStoppedStateChange(t *testing.T, taskEngine TaskEngine) {
 	stateChangeEvents := taskEngine.StateChangeEvents()
 	event := <-stateChangeEvents
 	assert.Equal(t, event.(api.TaskStateChange).Status, apitaskstatus.TaskStopped,
 		"Expected task to be STOPPED")
+}
+
+func verifyTaskStoppedStateChangeWithRuntimeID(t *testing.T, taskEngine TaskEngine) {
+	stateChangeEvents := taskEngine.StateChangeEvents()
+	event := <-stateChangeEvents
+	assert.Equal(t, event.(api.TaskStateChange).Status, apitaskstatus.TaskStopped,
+		"Expected task to be STOPPED")
+	assert.NotEqual(t, "", event.(api.TaskStateChange).Task.Containers[0].RuntimeID,
+		"Expected task with runtimeID per container should not empty when stopped")
 }
 
 func dialWithRetries(proto string, address string, tries int, timeout time.Duration) (net.Conn, error) {
@@ -91,9 +123,16 @@ func dialWithRetries(proto string, address string, tries int, timeout time.Durat
 }
 
 func removeImage(t *testing.T, img string) {
-	client, err := docker.NewClient(endpoint)
+	client, err := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 	require.NoError(t, err, "create docker client failed")
-	client.RemoveImage(img)
+	client.ImageRemove(context.TODO(), img, types.ImageRemoveOptions{})
+}
+
+func cleanVolumes(testTask *apitask.Task, taskEngine TaskEngine) {
+	client := taskEngine.(*DockerTaskEngine).client
+	for _, aVolume := range testTask.Volumes {
+		client.RemoveVolume(context.TODO(), aVolume.Name, removeVolumeTimeout)
+	}
 }
 
 // TestDockerStateToContainerState tests convert the container status from
@@ -102,10 +141,17 @@ func TestDockerStateToContainerState(t *testing.T) {
 	taskEngine, done, _ := setupWithDefaultConfig(t)
 	defer done()
 
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
 	testTask := createTestTask("test_task")
 	container := testTask.Containers[0]
 
-	client, err := docker.NewClientFromEnv()
+	// let the container keep running to prevent the edge case where it's already stopped when we check whether
+	// it's running
+	container.Command = getLongRunningCommand()
+
+	client, err := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
 	require.NoError(t, err, "Creating go docker client failed")
 
 	containerMetadata := taskEngine.(*DockerTaskEngine).pullContainer(testTask, container)
@@ -113,18 +159,18 @@ func TestDockerStateToContainerState(t *testing.T) {
 
 	containerMetadata = taskEngine.(*DockerTaskEngine).createContainer(testTask, container)
 	assert.NoError(t, containerMetadata.Error)
-	state, _ := client.InspectContainer(containerMetadata.DockerID)
-	assert.Equal(t, apicontainerstatus.ContainerCreated, dockerapi.DockerStateToState(state.State))
+	state, _ := client.ContainerInspect(ctx, containerMetadata.DockerID)
+	assert.Equal(t, apicontainerstatus.ContainerCreated, dockerapi.DockerStateToState(state.ContainerJSONBase.State))
 
 	containerMetadata = taskEngine.(*DockerTaskEngine).startContainer(testTask, container)
 	assert.NoError(t, containerMetadata.Error)
-	state, _ = client.InspectContainer(containerMetadata.DockerID)
-	assert.Equal(t, apicontainerstatus.ContainerRunning, dockerapi.DockerStateToState(state.State))
+	state, _ = client.ContainerInspect(ctx, containerMetadata.DockerID)
+	assert.Equal(t, apicontainerstatus.ContainerRunning, dockerapi.DockerStateToState(state.ContainerJSONBase.State))
 
 	containerMetadata = taskEngine.(*DockerTaskEngine).stopContainer(testTask, container)
 	assert.NoError(t, containerMetadata.Error)
-	state, _ = client.InspectContainer(containerMetadata.DockerID)
-	assert.Equal(t, apicontainerstatus.ContainerStopped, dockerapi.DockerStateToState(state.State))
+	state, _ = client.ContainerInspect(ctx, containerMetadata.DockerID)
+	assert.Equal(t, apicontainerstatus.ContainerStopped, dockerapi.DockerStateToState(state.ContainerJSONBase.State))
 
 	// clean up the container
 	err = taskEngine.(*DockerTaskEngine).removeContainer(testTask, container)
@@ -138,8 +184,8 @@ func TestDockerStateToContainerState(t *testing.T) {
 	assert.NoError(t, containerMetadata.Error)
 	containerMetadata = taskEngine.(*DockerTaskEngine).startContainer(testTask, container)
 	assert.Error(t, containerMetadata.Error)
-	state, _ = client.InspectContainer(containerMetadata.DockerID)
-	assert.Equal(t, apicontainerstatus.ContainerStopped, dockerapi.DockerStateToState(state.State))
+	state, _ = client.ContainerInspect(ctx, containerMetadata.DockerID)
+	assert.Equal(t, apicontainerstatus.ContainerStopped, dockerapi.DockerStateToState(state.ContainerJSONBase.State))
 
 	// clean up the container
 	err = taskEngine.(*DockerTaskEngine).removeContainer(testTask, container)
@@ -169,6 +215,8 @@ func TestHostVolumeMount(t *testing.T) {
 	data, err := ioutil.ReadFile(filepath.Join(tmpPath, "hello-from-container"))
 	assert.Nil(t, err, "Unexpected error")
 	assert.Equal(t, "hi", strings.TrimSpace(string(data)), "Incorrect file contents")
+
+	cleanVolumes(testTask, taskEngine)
 }
 
 func TestSweepContainer(t *testing.T) {
@@ -220,7 +268,7 @@ func TestStartStopWithCredentials(t *testing.T) {
 	taskCredentials := credentials.TaskIAMRoleCredentials{
 		IAMRoleCredentials: credentials.IAMRoleCredentials{CredentialsID: credentialsIDIntegTest},
 	}
-	credentialsManager.SetTaskCredentials(taskCredentials)
+	credentialsManager.SetTaskCredentials(&taskCredentials)
 	testTask.SetCredentialsID(credentialsIDIntegTest)
 
 	go taskEngine.AddTask(testTask)
@@ -234,6 +282,20 @@ func TestStartStopWithCredentials(t *testing.T) {
 	// credentials id set in the task
 	_, ok := credentialsManager.GetTaskCredentials(credentialsIDIntegTest)
 	assert.False(t, ok, "Credentials not removed from credentials manager for stopped task")
+}
+
+// TestStartStopWithRuntimeID starts and stops a task for which runtimeID has been set.
+func TestStartStopWithRuntimeID(t *testing.T) {
+	taskEngine, done, _ := setupWithDefaultConfig(t)
+	defer done()
+
+	testTask := createTestTask("testTaskWithContainerID")
+	go taskEngine.AddTask(testTask)
+
+	verifyContainerRunningStateChangeWithRuntimeID(t, taskEngine)
+	verifyTaskRunningStateChangeWithRuntimeID(t, taskEngine)
+	verifyContainerStoppedStateChangeWithRuntimeID(t, taskEngine)
+	verifyTaskStoppedStateChangeWithRuntimeID(t, taskEngine)
 }
 
 func TestTaskStopWhenPullImageFail(t *testing.T) {
@@ -379,6 +441,8 @@ func TestSharedAutoprovisionVolume(t *testing.T) {
 	client := taskEngine.(*DockerTaskEngine).client
 	response := client.InspectVolume(context.TODO(), "TestSharedAutoprovisionVolume", 1*time.Second)
 	assert.NoError(t, response.Error, "expect shared volume not removed")
+
+	cleanVolumes(testTask, taskEngine)
 }
 
 func TestSharedDoNotAutoprovisionVolume(t *testing.T) {
@@ -410,4 +474,87 @@ func TestSharedDoNotAutoprovisionVolume(t *testing.T) {
 	waitForTaskCleanup(t, taskEngine, testTask.Arn, 5)
 	response := client.InspectVolume(context.TODO(), "TestSharedDoNotAutoprovisionVolume", 1*time.Second)
 	assert.NoError(t, response.Error, "expect shared volume not removed")
+
+	cleanVolumes(testTask, taskEngine)
+}
+
+func TestLabels(t *testing.T) {
+	taskEngine, done, _ := setupWithDefaultConfig(t)
+	defer done()
+
+	client, err := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint), sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
+	require.NoError(t, err, "Creating go docker client failed")
+
+	testArn := "TestLabels"
+	testTask := createTestTask(testArn)
+	testTask.Containers[0].DockerConfig = apicontainer.DockerConfig{Config: aws.String(`{
+	"Labels": {
+		"com.foo.label2": "value",
+		"label1":""
+	}}`)}
+	stateChangeEvents := taskEngine.StateChangeEvents()
+	go taskEngine.AddTask(testTask)
+	verifyTaskIsRunning(stateChangeEvents, testTask)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	containerMap, _ := taskEngine.(*DockerTaskEngine).state.ContainerMapByArn(testTask.Arn)
+	cid := containerMap[testTask.Containers[0].Name].DockerID
+	state, _ := client.ContainerInspect(ctx, cid)
+	assert.EqualValues(t, "value", state.Config.Labels["com.foo.label2"])
+	assert.EqualValues(t, "", state.Config.Labels["label1"])
+
+	// Kill the existing container now
+	taskUpdate := createTestTask(testArn)
+	taskUpdate.SetDesiredStatus(apitaskstatus.TaskStopped)
+	go taskEngine.AddTask(taskUpdate)
+
+	verifyContainerStoppedStateChange(t, taskEngine)
+	verifyTaskStoppedStateChange(t, taskEngine)
+}
+
+func TestLogDriverOptions(t *testing.T) {
+	taskEngine, done, _ := setupWithDefaultConfig(t)
+	defer done()
+
+	client, err := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint),
+		sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
+	require.NoError(t, err, "Creating go docker client failed")
+
+	testArn := "TestLogdriverOptions"
+	testTask := createTestTask(testArn)
+	testTask.Containers[0].DockerConfig = apicontainer.DockerConfig{HostConfig: aws.String(`{
+	"LogConfig": {
+		"Type": "json-file",
+		"Config": {
+			"max-file": "50",
+			"max-size": "50k"
+		}
+	}}`)}
+	stateChangeEvents := taskEngine.StateChangeEvents()
+	go taskEngine.AddTask(testTask)
+	verifyTaskIsRunning(stateChangeEvents, testTask)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	containerMap, _ := taskEngine.(*DockerTaskEngine).state.ContainerMapByArn(testTask.Arn)
+	cid := containerMap[testTask.Containers[0].Name].DockerID
+	state, _ := client.ContainerInspect(ctx, cid)
+
+	containerExpected := container.LogConfig{
+		Type:   "json-file",
+		Config: map[string]string{"max-file": "50", "max-size": "50k"},
+	}
+
+	assert.EqualValues(t, containerExpected, state.HostConfig.LogConfig)
+
+	// Kill the existing container now
+	taskUpdate := createTestTask(testArn)
+	taskUpdate.SetDesiredStatus(apitaskstatus.TaskStopped)
+	go taskEngine.AddTask(taskUpdate)
+
+	verifyContainerStoppedStateChange(t, taskEngine)
+	verifyTaskStoppedStateChange(t, taskEngine)
 }

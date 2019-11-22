@@ -1,4 +1,4 @@
-// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -34,10 +34,14 @@ import (
 type ContainerStateChange struct {
 	// TaskArn is the unique identifier for the task
 	TaskArn string
+	// RuntimeID is the dockerID of the container
+	RuntimeID string
 	// ContainerName is the name of the container
 	ContainerName string
 	// Status is the status to send
 	Status apicontainerstatus.ContainerStatus
+	// ImageDigest is the sha-256 digest of the container image as pulled from the repository
+	ImageDigest string
 
 	// Reason may contain details of why the container stopped
 	Reason string
@@ -76,6 +80,13 @@ type TaskStateChange struct {
 	// Task is a pointer to the task involved in the state change that gives the event handler a hook into storing
 	// what status was sent.  This is used to ensure the same event is handled only once.
 	Task *apitask.Task
+}
+
+// AttachmentStateChange represents a state change that needs to be sent to the
+// SubmitAttachmentStateChanges API
+type AttachmentStateChange struct {
+	// Attachment is the eni attachment object to send
+	Attachment *apieni.ENIAttachment
 }
 
 // NewTaskStateChangeEvent creates a new task state change event
@@ -131,14 +142,22 @@ func NewContainerStateChangeEvent(task *apitask.Task, cont *apicontainer.Contain
 	event = ContainerStateChange{
 		TaskArn:       task.Arn,
 		ContainerName: cont.Name,
+		RuntimeID:     cont.GetRuntimeID(),
 		Status:        contKnownStatus.BackendStatus(cont.GetSteadyStateStatus()),
 		ExitCode:      cont.GetKnownExitCode(),
 		PortBindings:  cont.GetKnownPortBindings(),
+		ImageDigest:   cont.GetImageDigest(),
 		Reason:        reason,
 		Container:     cont,
 	}
-
 	return event, nil
+}
+
+// NewAttachmentStateChangeEvent creates a new attachment state change event
+func NewAttachmentStateChangeEvent(eniAttachment *apieni.ENIAttachment) AttachmentStateChange {
+	return AttachmentStateChange{
+		Attachment: eniAttachment,
+	}
 }
 
 // String returns a human readable string representation of this object
@@ -216,6 +235,16 @@ func (change *TaskStateChange) String() string {
 	return res
 }
 
+// String returns a human readable string representation of this object
+func (change *AttachmentStateChange) String() string {
+	if change.Attachment != nil {
+		return fmt.Sprintf("%s -> %s, %s", change.Attachment.AttachmentARN, change.Attachment.Status.String(),
+			change.Attachment.String())
+	}
+
+	return ""
+}
+
 // GetEventType returns an enum identifying the event type
 func (ContainerStateChange) GetEventType() statechange.EventType {
 	return statechange.ContainerEvent
@@ -224,4 +253,9 @@ func (ContainerStateChange) GetEventType() statechange.EventType {
 // GetEventType returns an enum identifying the event type
 func (TaskStateChange) GetEventType() statechange.EventType {
 	return statechange.TaskEvent
+}
+
+// GetEventType returns an enum identifying the event type
+func (AttachmentStateChange) GetEventType() statechange.EventType {
+	return statechange.AttachmentEvent
 }

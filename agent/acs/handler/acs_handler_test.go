@@ -1,6 +1,6 @@
 // +build unit
 
-// Copyright 2014-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2014-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"). You may
 // not use this file except in compliance with the License. A copy of the
@@ -31,21 +31,22 @@ import (
 	"context"
 
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
-	"github.com/aws/amazon-ecs-agent/agent/api/mocks"
+	mock_api "github.com/aws/amazon-ecs-agent/agent/api/mocks"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	"github.com/aws/amazon-ecs-agent/agent/config"
 	rolecredentials "github.com/aws/amazon-ecs-agent/agent/credentials"
-	"github.com/aws/amazon-ecs-agent/agent/credentials/mocks"
+	mock_credentials "github.com/aws/amazon-ecs-agent/agent/credentials/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/engine/dockerstate"
-	"github.com/aws/amazon-ecs-agent/agent/engine/mocks"
+	mock_engine "github.com/aws/amazon-ecs-agent/agent/engine/mocks"
 	"github.com/aws/amazon-ecs-agent/agent/eventhandler"
 	"github.com/aws/amazon-ecs-agent/agent/eventstream"
 	"github.com/aws/amazon-ecs-agent/agent/statemanager"
-	"github.com/aws/amazon-ecs-agent/agent/utils"
-	"github.com/aws/amazon-ecs-agent/agent/utils/mocks"
+
+	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
+	mock_retry "github.com/aws/amazon-ecs-agent/agent/utils/retry/mock"
 	"github.com/aws/amazon-ecs-agent/agent/version"
 	"github.com/aws/amazon-ecs-agent/agent/wsclient"
-	"github.com/aws/amazon-ecs-agent/agent/wsclient/mock"
+	mock_wsclient "github.com/aws/amazon-ecs-agent/agent/wsclient/mock"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
@@ -166,35 +167,15 @@ func TestACSWSURL(t *testing.T) {
 	wsurl := acsWsURL(acsURL, "myCluster", "myContainerInstance", taskEngine, &mockSessionResources{})
 
 	parsed, err := url.Parse(wsurl)
-	if err != nil {
-		t.Fatal("Should be able to parse url")
-	}
-
-	if parsed.Path != "/ws" {
-		t.Fatal("Wrong path")
-	}
-
-	if parsed.Query().Get("clusterArn") != "myCluster" {
-		t.Fatal("Wrong cluster")
-	}
-	if parsed.Query().Get("containerInstanceArn") != "myContainerInstance" {
-		t.Fatal("Wrong cluster")
-	}
-	if parsed.Query().Get("agentVersion") != version.Version {
-		t.Fatal("Wrong cluster")
-	}
-	if parsed.Query().Get("agentHash") != version.GitHashString() {
-		t.Fatal("Wrong cluster")
-	}
-	if parsed.Query().Get("dockerVersion") != "DockerVersion: Docker version result" {
-		t.Fatal("Wrong docker version")
-	}
-	if parsed.Query().Get(sendCredentialsURLParameterName) != "true" {
-		t.Fatalf("Wrong value set for: %s", sendCredentialsURLParameterName)
-	}
-	if parsed.Query().Get("seqNum") != "1" {
-		t.Fatal("Wrong seqNum")
-	}
+	assert.NoError(t, err, "should be able to parse URL")
+	assert.Equal(t, "/ws", parsed.Path, "wrong path")
+	assert.Equal(t, "myCluster", parsed.Query().Get("clusterArn"), "wrong cluster")
+	assert.Equal(t, "myContainerInstance", parsed.Query().Get("containerInstanceArn"), "wrong container instance")
+	assert.Equal(t, version.Version, parsed.Query().Get("agentVersion"), "wrong agent version")
+	assert.Equal(t, version.GitHashString(), parsed.Query().Get("agentHash"), "wrong agent hash")
+	assert.Equal(t, "DockerVersion: Docker version result", parsed.Query().Get("dockerVersion"), "wrong docker version")
+	assert.Equalf(t, "true", parsed.Query().Get(sendCredentialsURLParameterName), "Wrong value set for: %s", sendCredentialsURLParameterName)
+	assert.Equal(t, "1", parsed.Query().Get("seqNum"), "wrong seqNum")
 }
 
 // TestHandlerReconnectsOnConnectErrors tests if handler reconnects retries
@@ -215,6 +196,7 @@ func TestHandlerReconnectsOnConnectErrors(t *testing.T) {
 	mockWsClient := mock_wsclient.NewMockClientServer(ctrl)
 	mockWsClient.EXPECT().SetAnyRequestHandler(gomock.Any()).AnyTimes()
 	mockWsClient.EXPECT().AddRequestHandler(gomock.Any()).AnyTimes()
+	mockWsClient.EXPECT().Serve().AnyTimes()
 	mockWsClient.EXPECT().Close().Return(nil).AnyTimes()
 	gomock.InOrder(
 		// Connect fails 10 times
@@ -224,7 +206,7 @@ func TestHandlerReconnectsOnConnectErrors(t *testing.T) {
 		// test  to time out as the context is never cancelled
 		mockWsClient.EXPECT().Connect().Do(func() {
 			cancel()
-		}).Return(io.EOF).MinTimes(1),
+		}).Return(nil).MinTimes(1),
 	)
 	acsSession := session{
 		containerInstanceARN: "myArn",
@@ -234,7 +216,7 @@ func TestHandlerReconnectsOnConnectErrors(t *testing.T) {
 		ecsClient:            ecsClient,
 		stateManager:         stateManager,
 		taskHandler:          taskHandler,
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                  ctx,
 		cancel:               cancel,
 		resources:            &mockSessionResources{mockWsClient},
@@ -279,7 +261,7 @@ func TestComputeReconnectDelayForActiveInstance(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockBackoff := mock_utils.NewMockBackoff(ctrl)
+	mockBackoff := mock_retry.NewMockBackoff(ctrl)
 	mockBackoff.EXPECT().Duration().Return(connectionBackoffMax)
 
 	acsSession := session{backoff: mockBackoff}
@@ -353,7 +335,7 @@ func TestHandlerReconnectsWithoutBackoffOnEOFError(t *testing.T) {
 	deregisterInstanceEventStream := eventstream.NewEventStream("DeregisterContainerInstance", ctx)
 	deregisterInstanceEventStream.StartListening()
 
-	mockBackoff := mock_utils.NewMockBackoff(ctrl)
+	mockBackoff := mock_retry.NewMockBackoff(ctrl)
 	mockWsClient := mock_wsclient.NewMockClientServer(ctrl)
 	mockWsClient.EXPECT().SetAnyRequestHandler(gomock.Any()).AnyTimes()
 	mockWsClient.EXPECT().AddRequestHandler(gomock.Any()).AnyTimes()
@@ -416,7 +398,7 @@ func TestHandlerReconnectsWithBackoffOnNonEOFError(t *testing.T) {
 	deregisterInstanceEventStream := eventstream.NewEventStream("DeregisterContainerInstance", ctx)
 	deregisterInstanceEventStream.StartListening()
 
-	mockBackoff := mock_utils.NewMockBackoff(ctrl)
+	mockBackoff := mock_retry.NewMockBackoff(ctrl)
 	mockWsClient := mock_wsclient.NewMockClientServer(ctrl)
 	mockWsClient.EXPECT().SetAnyRequestHandler(gomock.Any()).AnyTimes()
 	mockWsClient.EXPECT().AddRequestHandler(gomock.Any()).AnyTimes()
@@ -501,7 +483,7 @@ func TestHandlerGeneratesDeregisteredInstanceEvent(t *testing.T) {
 		deregisterInstanceEventStream:   deregisterInstanceEventStream,
 		stateManager:                    stateManager,
 		taskHandler:                     taskHandler,
-		backoff:                         utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:                         retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                             ctx,
 		cancel:                          cancel,
 		resources:                       &mockSessionResources{mockWsClient},
@@ -570,7 +552,7 @@ func TestHandlerReconnectDelayForInactiveInstanceError(t *testing.T) {
 		deregisterInstanceEventStream:   deregisterInstanceEventStream,
 		stateManager:                    stateManager,
 		taskHandler:                     taskHandler,
-		backoff:                         utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:                         retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                             ctx,
 		cancel:                          cancel,
 		resources:                       &mockSessionResources{mockWsClient},
@@ -616,7 +598,7 @@ func TestHandlerReconnectsOnServeErrors(t *testing.T) {
 		// test to time out as the context is never cancelled
 		mockWsClient.EXPECT().Serve().Do(func() {
 			cancel()
-		}).Return(io.EOF),
+		}),
 	)
 
 	acsSession := session{
@@ -627,7 +609,7 @@ func TestHandlerReconnectsOnServeErrors(t *testing.T) {
 		ecsClient:            ecsClient,
 		stateManager:         stateManager,
 		taskHandler:          taskHandler,
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                  ctx,
 		cancel:               cancel,
 		resources:            &mockSessionResources{mockWsClient},
@@ -678,7 +660,7 @@ func TestHandlerStopsWhenContextIsCancelled(t *testing.T) {
 		ecsClient:            ecsClient,
 		stateManager:         stateManager,
 		taskHandler:          taskHandler,
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                  ctx,
 		cancel:               cancel,
 		resources:            &mockSessionResources{mockWsClient},
@@ -711,12 +693,12 @@ func TestHandlerReconnectsOnDiscoverPollEndpointError(t *testing.T) {
 	mockWsClient := mock_wsclient.NewMockClientServer(ctrl)
 	mockWsClient.EXPECT().SetAnyRequestHandler(gomock.Any()).AnyTimes()
 	mockWsClient.EXPECT().AddRequestHandler(gomock.Any()).AnyTimes()
-	mockWsClient.EXPECT().Connect().Return(nil).AnyTimes()
+	mockWsClient.EXPECT().Serve().AnyTimes()
 	mockWsClient.EXPECT().Close().Return(nil).AnyTimes()
-	mockWsClient.EXPECT().Serve().Do(func() {
+	mockWsClient.EXPECT().Connect().Do(func() {
 		// Serve() cancels the context
 		cancel()
-	}).Return(io.EOF).MinTimes(1)
+	}).Return(nil).MinTimes(1)
 
 	gomock.InOrder(
 		// DiscoverPollEndpoint returns an error on its first invocation
@@ -732,7 +714,7 @@ func TestHandlerReconnectsOnDiscoverPollEndpointError(t *testing.T) {
 		ecsClient:            ecsClient,
 		stateManager:         stateManager,
 		taskHandler:          taskHandler,
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		ctx:                  ctx,
 		cancel:               cancel,
 		resources:            &mockSessionResources{mockWsClient},
@@ -761,7 +743,6 @@ func TestHandlerReconnectsOnDiscoverPollEndpointError(t *testing.T) {
 	if timeSinceStart > 2*connectionBackoffMin {
 		t.Errorf("Duration since start is greater than maximum anticipated wait time: %v", timeSinceStart.String())
 	}
-
 }
 
 // TestConnectionIsClosedOnIdle tests if the connection to ACS is closed
@@ -806,7 +787,7 @@ func TestConnectionIsClosedOnIdle(t *testing.T) {
 		stateManager:         stateManager,
 		taskHandler:          taskHandler,
 		ctx:                  context.Background(),
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		resources:            &mockSessionResources{},
 		_heartbeatTimeout:    20 * time.Millisecond,
 		_heartbeatJitter:     10 * time.Millisecond,
@@ -861,7 +842,7 @@ func TestHandlerDoesntLeakGoroutines(t *testing.T) {
 			taskHandler:          taskHandler,
 			ctx:                  ctx,
 			_heartbeatTimeout:    1 * time.Second,
-			backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+			backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 			resources:            newSessionResources(testCreds),
 			credentialsManager:   rolecredentials.NewManager(),
 		}
@@ -962,8 +943,8 @@ func TestStartSessionHandlesRefreshCredentialsMessages(t *testing.T) {
 		taskEngine.EXPECT().GetTaskByArn("t1").Return(taskFromEngine, true),
 		// The last invocation of SetCredentials is to update
 		// credentials when a refresh message is received by the handler
-		credentialsManager.EXPECT().SetTaskCredentials(gomock.Any()).Do(func(creds rolecredentials.TaskIAMRoleCredentials) {
-			updatedCredentials = creds
+		credentialsManager.EXPECT().SetTaskCredentials(gomock.Any()).Do(func(creds *rolecredentials.TaskIAMRoleCredentials) {
+			updatedCredentials = *creds
 			// Validate parsed credentials after the update
 			expectedCreds := rolecredentials.TaskIAMRoleCredentials{
 				ARN: "t1",
@@ -1062,7 +1043,7 @@ func TestHandlerReconnectsCorrectlySetsSendCredentialsURLParameter(t *testing.T)
 		taskHandler:          taskHandler,
 		ctx:                  ctx,
 		resources:            resources,
-		backoff:              utils.NewSimpleBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
+		backoff:              retry.NewExponentialBackoff(connectionBackoffMin, connectionBackoffMax, connectionBackoffJitter, connectionBackoffMultiplier),
 		_heartbeatTimeout:    20 * time.Millisecond,
 		_heartbeatJitter:     10 * time.Millisecond,
 	}

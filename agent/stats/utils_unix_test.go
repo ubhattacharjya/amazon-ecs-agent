@@ -16,52 +16,44 @@ package stats
 
 import (
 	"encoding/json"
-	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"testing"
 
-	docker "github.com/fsouza/go-dockerclient"
+	"github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDockerStatsToContainerStatsZeroCoresGeneratesError(t *testing.T) {
-	// doing this with json makes me sad, but is the easiest way to deal with
-	// the inner structs
-	jsonStat := fmt.Sprintf(`
-		{
-			"cpu_stats":{
-				"cpu_usage":{
-					"total_usage":%d
-				}
-			}
-		}`, 100)
-	dockerStat := &docker.Stats{}
-	json.Unmarshal([]byte(jsonStat), dockerStat)
+func TestDockerStatsToContainerStatsEmptyCpuUsageGeneratesError(t *testing.T) {
+	inputJsonFile, _ := filepath.Abs("./unix_test_stats.json")
+	jsonBytes, _ := ioutil.ReadFile(inputJsonFile)
+	dockerStat := &types.StatsJSON{}
+	json.Unmarshal([]byte(jsonBytes), dockerStat)
+	// empty the PercpuUsage array
+	dockerStat.CPUStats.CPUUsage.PercpuUsage = make([]uint64, 0)
 	_, err := dockerStatsToContainerStats(dockerStat)
 	assert.Error(t, err, "expected error converting container stats with empty PercpuUsage")
 }
 
-func TestDockerStatsToContainerStatsCpuUsage(t *testing.T) {
-	// doing this with json makes me sad, but is the easiest way to deal with
-	// the inner structs
-
+func TestDockerStatsToContainerStats(t *testing.T) {
 	// numCores is a global variable in package agent/stats
 	// which denotes the number of cpu cores
+	// TODO should we take this from the docker stats `online_cpus`?
 	numCores = 4
-	jsonStat := fmt.Sprintf(`
-		{
-			"cpu_stats":{
-				"cpu_usage":{
-					"percpu_usage":[%d, %d, %d, %d],
-					"total_usage":%d
-				}
-			}
-		}`, 1, 2, 3, 4, 100)
-	dockerStat := &docker.Stats{}
-	json.Unmarshal([]byte(jsonStat), dockerStat)
+	inputJsonFile, _ := filepath.Abs("./unix_test_stats.json")
+	jsonBytes, _ := ioutil.ReadFile(inputJsonFile)
+	dockerStat := &types.StatsJSON{}
+	json.Unmarshal([]byte(jsonBytes), dockerStat)
 	containerStats, err := dockerStatsToContainerStats(dockerStat)
 	assert.NoError(t, err, "converting container stats failed")
-
 	require.NotNil(t, containerStats, "containerStats should not be nil")
-	assert.Equal(t, uint64(25), containerStats.cpuUsage, "unexpected value for cpuUsage", containerStats.cpuUsage)
+	assert.Equal(t, uint64(65714455379), containerStats.cpuUsage, "unexpected value for cpuUsage", containerStats.cpuUsage)
+	// storage bytes check
+	assert.Equal(t, uint64(3), containerStats.storageReadBytes, "unexpected value for storageReadBytes", containerStats.storageReadBytes)
+	assert.Equal(t, uint64(15), containerStats.storageWriteBytes, "Unexpected value for storageWriteBytes", containerStats.storageWriteBytes)
+	// network stats check
+	netStats := containerStats.networkStats
+	assert.NotNil(t, netStats, "networkStats should not be nil")
+	validateNetworkMetrics(t, netStats)
 }

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/aws/amazon-ecs-agent/agent/api/task/status"
+	"github.com/aws/amazon-ecs-agent/agent/dockerclient"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/taskresource"
 	resourcestatus "github.com/aws/amazon-ecs-agent/agent/taskresource/status"
@@ -33,10 +34,9 @@ const (
 	// SharedScope indicates that the volume's lifecycle is outside the scope of task
 	SharedScope = "shared"
 	// DockerLocalVolumeDriver is the name of the docker default volume driver
-	DockerLocalVolumeDriver = "local"
+	DockerLocalVolumeDriver   = "local"
+	resourceProvisioningError = "VolumeError: Agent could not create task's volume resources"
 )
-
-const resourceProvisioningError = "VolumeError: Agent could not create task's volume resources"
 
 // VolumeResource represents volume resource
 type VolumeResource struct {
@@ -55,6 +55,12 @@ type VolumeResource struct {
 	statusToTransitions map[resourcestatus.ResourceStatus]func() error
 	client              dockerapi.DockerClient
 	ctx                 context.Context
+
+	// terminalReason should be set for resource creation failures. This ensures
+	// the resource object carries some context for why provisoning failed.
+	terminalReason     string
+	terminalReasonOnce sync.Once
+
 	// lock is used for fields that are accessed and updated concurrently
 	lock sync.RWMutex
 }
@@ -146,7 +152,17 @@ func (vol *VolumeResource) DesiredTerminal() bool {
 // GetTerminalReason returns an error string to propagate up through to task
 // state change messages
 func (vol *VolumeResource) GetTerminalReason() string {
-	return resourceProvisioningError
+	if vol.terminalReason == "" {
+		return resourceProvisioningError
+	}
+	return vol.terminalReason
+}
+
+func (vol *VolumeResource) setTerminalReason(reason string) {
+	vol.terminalReasonOnce.Do(func() {
+		seelog.Infof("Volume Resource [%s]: setting terminal reason for volume resource", vol.Name)
+		vol.terminalReason = reason
+	})
 }
 
 // SetDesiredStatus safely sets the desired status of the resource
@@ -209,8 +225,10 @@ func (vol *VolumeResource) SteadyState() resourcestatus.ResourceStatus {
 func (vol *VolumeResource) ApplyTransition(nextState resourcestatus.ResourceStatus) error {
 	transitionFunc, ok := vol.statusToTransitions[nextState]
 	if !ok {
-		return errors.Errorf("volume [%s]: transition to %s impossible", vol.Name,
+		errW := errors.Errorf("volume [%s]: transition to %s impossible", vol.Name,
 			vol.StatusString(nextState))
+		vol.setTerminalReason(errW.Error())
+		return errW
 	}
 	return transitionFunc()
 }
@@ -285,9 +303,10 @@ func (vol *VolumeResource) Create() error {
 		vol.VolumeConfig.Driver,
 		vol.VolumeConfig.DriverOpts,
 		vol.VolumeConfig.Labels,
-		dockerapi.CreateVolumeTimeout)
+		dockerclient.CreateVolumeTimeout)
 
 	if volumeResponse.Error != nil {
+		vol.setTerminalReason(volumeResponse.Error.Error())
 		return volumeResponse.Error
 	}
 
@@ -305,9 +324,10 @@ func (vol *VolumeResource) Cleanup() error {
 	}
 
 	seelog.Debugf("Removing volume with name %s", vol.Name)
-	err := vol.client.RemoveVolume(vol.ctx, vol.VolumeConfig.DockerVolumeName, dockerapi.RemoveVolumeTimeout)
+	err := vol.client.RemoveVolume(vol.ctx, vol.VolumeConfig.DockerVolumeName, dockerclient.RemoveVolumeTimeout)
 
 	if err != nil {
+		vol.setTerminalReason(err.Error())
 		return err
 	}
 	return nil
