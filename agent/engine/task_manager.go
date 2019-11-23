@@ -438,7 +438,7 @@ func (mtask *managedTask) handleContainerChange(containerChange dockerContainerC
 
 	mtask.emitContainerEvent(mtask.Task, container, "")
 	if mtask.UpdateStatus() {
-		seelog.Infof("Managed task [%s]: container change in MACIS will also resulted in task change [%s]: [%s]",
+		seelog.Infof("Managed task [%s]: container change in MACIS again will also resulted in task change [%s]: [%s]",
 			mtask.Arn, container.Name, mtask.GetDesiredStatus().String())
 		// If knownStatus changed, let it be known
 		var taskStateChangeReason string
