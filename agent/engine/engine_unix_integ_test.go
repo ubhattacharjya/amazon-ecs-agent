@@ -39,6 +39,7 @@ import (
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/agent/api/task/status"
 	"github.com/aws/amazon-ecs-agent/agent/config"
+	"github.com/aws/amazon-ecs-agent/agent/credentials"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
@@ -61,6 +62,7 @@ const (
 	testVolumeImage       = "127.0.0.1:51670/amazon/amazon-ecs-volumes-test:latest"
 	testPIDNamespaceImage = "127.0.0.1:51670/amazon/amazon-ecs-pid-namespace-test:latest"
 	testIPCNamespaceImage = "127.0.0.1:51670/amazon/amazon-ecs-ipc-namespace-test:latest"
+	testTaskIAMRoleImage  = "127.0.0.1:51670/amazon/awscli:latest"
 	testUbuntuImage       = "127.0.0.1:51670/ubuntu:latest"
 	testFluentdImage      = "127.0.0.1:51670/amazon/fluentd:latest"
 	testAuthUser          = "user"
@@ -86,6 +88,20 @@ var (
 	endpoint            = utils.DefaultIfBlank(os.Getenv(DockerEndpointEnvVariable), DockerDefaultEndpoint)
 	TestGPUInstanceType = []string{"p2", "p3", "g3", "g4dn"}
 )
+
+func createTaskIAMTask(arn string) *apitask.Task{
+	testTask := &apitask.Task{
+		Arn:                 arn,
+		Family:              "family",
+		Version:             "1",
+		DesiredStatusUnsafe: apitaskstatus.TaskRunning,
+		Containers:          []*apicontainer.Container{createTestContainercreateTestContainer()},
+	}
+	testTask.Containers[0].Image = testTaskIAMRoleImage
+	testTask.Containers[0].Name = "test-task-iam-role"
+	testTask.Containers[0].Command = []string{"sleep 5s; export AWS_DEFAULT_REGION=us-west-2; aws ec2 describe-regions"}
+	return testTask
+}
 
 func createTestHealthCheckTask(arn string) *apitask.Task {
 	testTask := &apitask.Task{
@@ -1517,4 +1533,50 @@ func TestFluentdTag(t *testing.T) {
 
 	err = utils.SearchStrInDir(logdir, "ecsfts", logTag)
 	assert.NoError(t, err, "failed to find the log tag specified in the task definition")
+}
+
+func TestTaskIAMRoles(t *testing.T) {
+
+	os.Setenv("ECS_ENABLE_TASK_IAM_ROLE", true)
+	defer os.Unsetenv("ECS_ENABLE_TASK_IAM_ROLE")
+
+	taskEngine, done, credentialsManager := setupWithDefaultConfig(t)
+	defer done()
+
+	client, err := sdkClient.NewClientWithOpts(sdkClient.WithHost(endpoint),
+		sdkClient.WithVersion(sdkclientfactory.GetDefaultVersion().String()))
+	require.NoError(t, err, "Creating go docker client failed")
+
+	testTaskIAMRole := createTaskIAMTask("testTaskIAMRole")
+
+	taskCredentials := credentials.TaskIAMRoleCredentials{
+		IAMRoleCredentials: credentials.IAMRoleCredentials{CredentialsID: credentialsIDIntegTest},
+	}
+	credentialsManager.SetTaskCredentials(&taskCredentials)
+	testTaskIAMRole.SetCredentialsID(credentialsIDIntegTest)
+
+	go taskEngine.AddTask(testTaskIAMRole)
+	verifyContainerRunningStateChange(t, taskEngine)
+	verifyTaskRunningStateChange(t, taskEngine)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	containerMap, _ := taskEngine.(*DockerTaskEngine).state.ContainerMapByArn(testTaskIAMRole.Arn)
+	cid := containerMap[testTaskIAMRole.Containers[0].Name].DockerID
+	state, _ := client.ContainerInspect(ctx, cid)
+
+	iamRoleEnabled := false
+	if state.Config != nil {
+		for _, env := range state.Config.Env {
+			if strings.HasPrefix(env, "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=") {
+				iamRoleEnabled = true
+				break
+			}
+		}
+	}
+	assert.Equal(t, iamRoleEnabled, true)
+
+	verifyContainerStoppedStateChange(t, taskEngine)
+	verifyTaskStoppedStateChange(t, taskEngine)
 }
