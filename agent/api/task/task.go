@@ -1219,7 +1219,7 @@ func (task *Task) updateTaskKnownStatus() (newStatus apitaskstatus.TaskStatus) {
 	}
 	if earliestKnownStatusContainer == nil {
 		seelog.Criticalf(
-			"Impossible state found while updating tasks's known statuss, earliest state recorded as %s for task [%v]",
+			"Impossible state found while updating tasks's known statusss, earliest state recorded as %s for task [%v]",
 			containerEarliestKnownStatus.String(), task)
 		return apitaskstatus.TaskStatusNone
 	}
