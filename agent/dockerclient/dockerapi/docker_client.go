@@ -457,7 +457,7 @@ func (dg *dockerGoClient) filterPullDebugOutput(data *ImagePullResponse, image s
 	now := time.Now()
 	if !strings.Contains(data.Progress, "[=") || now.After(statusDisplayed.Add(pullStatusSuppressDelay)) {
 		// data.Progress shows the progress bar lines for Status=downlaoding or Extracting, logging data.Status to retain enough for debugging
-		seelog.Debugf("DockerGoClient: pulling image %s, status %s", image, data.Status)
+		seelog.Debugf("DockerGoClient: pulling the image %s, status %s", image, data.Status)
 	}
 
 	if strings.Contains(data.Status, "already being pulled by another client. Waiting.") {
