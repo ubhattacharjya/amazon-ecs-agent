@@ -225,6 +225,7 @@ func (cs *clientServer) metricsToPublishMetricRequests() ([]*ecstcs.PublishMetri
 		// Create a request with remaining task metrics.
 		requests = append(requests, ecstcs.NewPublishMetricsRequest(requestMetadata, messageTaskMetrics))
 	}
+
 	return requests, nil
 }
 

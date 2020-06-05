@@ -187,6 +187,14 @@ func (queue *Queue) GetNetworkStatsSet() (*ecstcs.NetworkStatsSet, error) {
 	if err != nil {
 		seelog.Warnf("Error getting network tx packets: %v", err)
 	}
+	networkStatsSet.RxBytesPerSecond, err = queue.getULongStatsSet(getNetworkRxPacketsPerSecond)
+	if err != nil {
+		seelog.Warnf("Error getting network rx bytes per second: %v", err)
+	}
+	networkStatsSet.TxBytesPerSecond, err = queue.getULongStatsSet(getNetworkTxPacketsPerSecond)
+	if err != nil {
+		seelog.Warnf("Error getting network tx bytes per second: %v", err)
+	}
 	return networkStatsSet, err
 }
 
@@ -242,6 +250,20 @@ func getNetworkTxErrors(s *UsageStats) uint64 {
 func getNetworkTxPackets(s *UsageStats) uint64 {
 	if s.NetworkStats != nil {
 		return s.NetworkStats.TxPackets
+	}
+	return uint64(0)
+}
+
+func getNetworkRxPacketsPerSecond(s *UsageStats) uint64 {
+	if s.NetworkStats != nil {
+		return s.NetworkStats.RxBytesPerSecond
+	}
+	return uint64(0)
+}
+
+func getNetworkTxPacketsPerSecond(s *UsageStats) uint64 {
+	if s.NetworkStats != nil {
+		return s.NetworkStats.TxBytesPerSecond
 	}
 	return uint64(0)
 }
