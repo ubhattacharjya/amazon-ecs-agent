@@ -310,13 +310,13 @@ func (m *MockDockerClient) RemoveImage(arg0 context.Context, arg1 string, arg2 t
 	return ret0
 }
 
-// RemoveImage indicates an expected call of RemoveImage
+// RemoveImage indicates an expected call of RemoveImage.
 func (mr *MockDockerClientMockRecorder) RemoveImage(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveImage", reflect.TypeOf((*MockDockerClient)(nil).RemoveImage), arg0, arg1, arg2)
 }
 
-// RemoveVolume mocks base method
+// RemoveVolume mocks base method.
 func (m *MockDockerClient) RemoveVolume(arg0 context.Context, arg1 string, arg2 time.Duration) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveVolume", arg0, arg1, arg2)
@@ -324,13 +324,13 @@ func (m *MockDockerClient) RemoveVolume(arg0 context.Context, arg1 string, arg2 
 	return ret0
 }
 
-// RemoveVolume indicates an expected call of RemoveVolume
+// RemoveVolume indicates an expected call of RemoveVolume.
 func (mr *MockDockerClientMockRecorder) RemoveVolume(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveVolume", reflect.TypeOf((*MockDockerClient)(nil).RemoveVolume), arg0, arg1, arg2)
 }
 
-// StartContainer mocks base method
+// StartContainer mocks base method.
 func (m *MockDockerClient) StartContainer(arg0 context.Context, arg1 string, arg2 time.Duration) dockerapi.DockerContainerMetadata {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StartContainer", arg0, arg1, arg2)
@@ -338,13 +338,27 @@ func (m *MockDockerClient) StartContainer(arg0 context.Context, arg1 string, arg
 	return ret0
 }
 
-// StartContainer indicates an expected call of StartContainer
+// StartContainer indicates an expected call of StartContainer.
 func (mr *MockDockerClientMockRecorder) StartContainer(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartContainer", reflect.TypeOf((*MockDockerClient)(nil).StartContainer), arg0, arg1, arg2)
 }
 
-// Stats mocks base method
+// StartContainerExec mocks base method.
+func (m *MockDockerClient) StartContainerExec(arg0 context.Context, arg1 string, arg2 time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartContainerExec", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StartContainerExec indicates an expected call of StartContainerExec.
+func (mr *MockDockerClientMockRecorder) StartContainerExec(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartContainerExec", reflect.TypeOf((*MockDockerClient)(nil).StartContainerExec), arg0, arg1, arg2)
+}
+
+// Stats mocks base method.
 func (m *MockDockerClient) Stats(arg0 context.Context, arg1 string, arg2 time.Duration) (<-chan *types.StatsJSON, <-chan error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Stats", arg0, arg1, arg2)
@@ -353,13 +367,13 @@ func (m *MockDockerClient) Stats(arg0 context.Context, arg1 string, arg2 time.Du
 	return ret0, ret1
 }
 
-// Stats indicates an expected call of Stats
+// Stats indicates an expected call of Stats.
 func (mr *MockDockerClientMockRecorder) Stats(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stats", reflect.TypeOf((*MockDockerClient)(nil).Stats), arg0, arg1, arg2)
 }
 
-// StopContainer mocks base method
+// StopContainer mocks base method.
 func (m *MockDockerClient) StopContainer(arg0 context.Context, arg1 string, arg2 time.Duration) dockerapi.DockerContainerMetadata {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StopContainer", arg0, arg1, arg2)
@@ -367,13 +381,13 @@ func (m *MockDockerClient) StopContainer(arg0 context.Context, arg1 string, arg2
 	return ret0
 }
 
-// StopContainer indicates an expected call of StopContainer
+// StopContainer indicates an expected call of StopContainer.
 func (mr *MockDockerClientMockRecorder) StopContainer(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopContainer", reflect.TypeOf((*MockDockerClient)(nil).StopContainer), arg0, arg1, arg2)
 }
 
-// SupportedVersions mocks base method
+// SupportedVersions mocks base method.
 func (m *MockDockerClient) SupportedVersions() []dockerclient.DockerVersion {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SupportedVersions")
@@ -381,13 +395,13 @@ func (m *MockDockerClient) SupportedVersions() []dockerclient.DockerVersion {
 	return ret0
 }
 
-// SupportedVersions indicates an expected call of SupportedVersions
+// SupportedVersions indicates an expected call of SupportedVersions.
 func (mr *MockDockerClientMockRecorder) SupportedVersions() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportedVersions", reflect.TypeOf((*MockDockerClient)(nil).SupportedVersions))
 }
 
-// TopContainer mocks base method
+// TopContainer mocks base method.
 func (m *MockDockerClient) TopContainer(arg0 context.Context, arg1 string, arg2 time.Duration) (*container0.ContainerTopOKBody, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TopContainer", arg0, arg1, arg2)
@@ -396,13 +410,13 @@ func (m *MockDockerClient) TopContainer(arg0 context.Context, arg1 string, arg2 
 	return ret0, ret1
 }
 
-// TopContainer indicates an expected call of TopContainer
+// TopContainer indicates an expected call of TopContainer.
 func (mr *MockDockerClientMockRecorder) TopContainer(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TopContainer", reflect.TypeOf((*MockDockerClient)(nil).TopContainer), arg0, arg1, arg2)
 }
 
-// Version mocks base method
+// Version mocks base method.
 func (m *MockDockerClient) Version(arg0 context.Context, arg1 time.Duration) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Version", arg0, arg1)
@@ -411,13 +425,13 @@ func (m *MockDockerClient) Version(arg0 context.Context, arg1 time.Duration) (st
 	return ret0, ret1
 }
 
-// Version indicates an expected call of Version
+// Version indicates an expected call of Version.
 func (mr *MockDockerClientMockRecorder) Version(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Version", reflect.TypeOf((*MockDockerClient)(nil).Version), arg0, arg1)
 }
 
-// WithVersion mocks base method
+// WithVersion mocks base method.
 func (m *MockDockerClient) WithVersion(arg0 dockerclient.DockerVersion) dockerapi.DockerClient {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WithVersion", arg0)
@@ -425,7 +439,7 @@ func (m *MockDockerClient) WithVersion(arg0 dockerclient.DockerVersion) dockerap
 	return ret0
 }
 
-// WithVersion indicates an expected call of WithVersion
+// WithVersion indicates an expected call of WithVersion.
 func (mr *MockDockerClientMockRecorder) WithVersion(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithVersion", reflect.TypeOf((*MockDockerClient)(nil).WithVersion), arg0)
