@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aws/amazon-ecs-agent/agent/ecrpublic"
 	"github.com/aws/amazon-ecs-agent/agent/metrics"
 
 	acshandler "github.com/aws/amazon-ecs-agent/agent/acs/handler"
@@ -35,6 +36,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/dockerapi"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/ec2"
+	ecrpublicfactory "github.com/aws/amazon-ecs-agent/agent/ecrpublic/factory"
 	"github.com/aws/amazon-ecs-agent/agent/ecs_client/model/ecs"
 	"github.com/aws/amazon-ecs-agent/agent/ecscni"
 	"github.com/aws/amazon-ecs-agent/agent/engine"
@@ -98,6 +100,7 @@ type ecsAgent struct {
 	cancel                      context.CancelFunc
 	ec2MetadataClient           ec2.EC2MetadataClient
 	ec2Client                   ec2.Client
+	ecrpublicfactory            ecrpublicfactory.ECRPublicClientCreator
 	cfg                         *config.Config
 	dataClient                  data.Client
 	dockerClient                dockerapi.DockerClient
@@ -188,6 +191,7 @@ func newAgent(blackholeEC2Metadata bool, acceptInsecureCert *bool) (agent, error
 		credentialProvider:          defaults.CredChain(defaults.Config(), defaults.Handlers()),
 		stateManagerFactory:         factory.NewStateManager(),
 		saveableOptionFactory:       factory.NewSaveableOption(),
+		ecrpublicfactory:            ecrpublicfactory.NewECRPublicClientCreator(),
 		pauseLoader:                 pause.New(),
 		cniClient:                   ecscni.NewClient(cfg.CNIPluginsPath),
 		metadataManager:             metadataManager,
@@ -346,9 +350,20 @@ func (agent *ecsAgent) doStart(containerChangeEventStream *eventstream.EventStre
 	agent.startAsyncRoutines(containerChangeEventStream, credentialsManager, imageManager,
 		taskEngine, deregisterInstanceEventStream, client, taskHandler, attachmentEventHandler, state)
 
+	ecrPublicLoginErr := agent.logintoEcrPublic()
+	if ecrPublicLoginErr != nil {
+		seelog.Errorf("Failed to login to ECR public repository")
+	}
 	// Start the acs session, which should block doStart
 	return agent.startACSSession(credentialsManager, taskEngine,
 		deregisterInstanceEventStream, client, state, taskHandler)
+}
+
+func (agent *ecsAgent) logintoEcrPublic() error {
+	ecrpublicClient := agent.ecrpublicfactory.NewECRPublicClient(agent.credentialProvider)
+	out, err := ecrpublic.GetAuthorizationToken(ecrpublicClient)
+	seelog.Infof("Authorization token is %v", out)
+	return err
 }
 
 // newTaskEngine creates a new docker task engine object. It tries to load the

@@ -16,37 +16,43 @@ package factory
 import (
 	"time"
 
-	"github.com/aws/amazon-ecs-agent/agent/credentials"
 	ecrpublicclient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
 	"github.com/aws/amazon-ecs-agent/agent/httpclient"
 	"github.com/aws/aws-sdk-go/aws"
 	awscreds "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	ecrpublic "github.com/aws/aws-sdk-go/service/ecrpublic"
+	"github.com/aws/aws-sdk-go/service/ecrpublic"
+	"github.com/cihub/seelog"
 )
 
 const (
 	roundtripTimeout = 5 * time.Second
+	ecrPublicRegion  = "us-east-1"
 )
 
-type ClientCreator interface {
-	NewECRPublicClient(region string, creds credentials.IAMRoleCredentials) ecrpublicclient.ECRPublicClient
+type ECRPublicClientCreator interface {
+	NewECRPublicClient(creds *awscreds.Credentials) ecrpublicclient.ECRPublicClient
 }
 
-func NewClientCreator() ClientCreator {
+func NewECRPublicClientCreator() ECRPublicClientCreator {
 	return &ecrPublicClientCreator{}
 }
 
 type ecrPublicClientCreator struct{}
 
-func (*ecrPublicClientCreator) NewECRPublicClient(region string,
-	creds credentials.IAMRoleCredentials) ecrpublicclient.ECRPublicClient {
+func (*ecrPublicClientCreator) NewECRPublicClient(awscred *awscreds.Credentials) ecrpublicclient.ECRPublicClient {
+
+	creds, err := awscred.Get()
+	if err != nil {
+		seelog.Errorf("Error getting valid credentials: %s", err)
+	}
 	cfg := aws.NewConfig().
 		WithHTTPClient(httpclient.New(roundtripTimeout, false)).
-		WithRegion(region).
+		WithRegion(ecrPublicRegion).
 		WithCredentials(
 			awscreds.NewStaticCredentials(creds.AccessKeyID, creds.SecretAccessKey,
 				creds.SessionToken))
 	sess := session.Must(session.NewSession(cfg))
 	return ecrpublic.New(sess)
+
 }
