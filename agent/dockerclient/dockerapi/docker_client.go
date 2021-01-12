@@ -38,10 +38,12 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclient"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/ecr"
+	ecrpublicclient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
 	"github.com/aws/amazon-ecs-agent/agent/metrics"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
+	"github.com/aws/aws-sdk-go/service/ecrpublic"
 
 	"github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
@@ -105,6 +107,8 @@ type DockerClient interface {
 
 	// KnownVersions returns a slice of the Docker API versions known to the Docker daemon.
 	KnownVersions() []dockerclient.DockerVersion
+
+	SetECRPublicTokenCache(ecrpublicclient.ECRPublicClient, *ecrpublic.AuthorizationData)
 
 	// WithVersion returns a new DockerClient for which all operations will use the given remote api version.
 	// A default version will be used for a client not produced via this method.
@@ -214,6 +218,7 @@ type dockerGoClient struct {
 	ecrClientFactory         ecr.ECRFactory
 	auth                     dockerauth.DockerAuthProvider
 	ecrTokenCache            async.Cache
+	ecrPublicClient          ecrpublicclient.ECRPublicClient
 	config                   *config.Config
 	context                  context.Context
 	imagePullBackoff         retry.Backoff
@@ -284,6 +289,11 @@ func NewDockerGoClient(sdkclientFactory sdkclientfactory.Factory,
 			pullRetryJitterMultiplier, pullRetryDelayMultiplier),
 		inactivityTimeoutHandler: handleInactivityTimeout,
 	}, nil
+}
+
+func (dg *dockerGoClient) SetECRPublicTokenCache(client ecrpublicclient.ECRPublicClient, authData *ecrpublic.AuthorizationData) {
+	dg.ecrTokenCache.Set("ecrPublicKey", authData)
+	dg.ecrPublicClient = client
 }
 
 // Returns the Docker SDK Client
@@ -489,6 +499,14 @@ func (dg *dockerGoClient) InspectImage(image string) (*types.ImageInspect, error
 }
 
 func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.RegistryAuthenticationData) (types.AuthConfig, error) {
+	if strings.Contains(image, "public.ecr") {
+		providerecrPublic := dockerauth.NewECRPublicAuthProvider(dg.ecrPublicClient, dg.ecrTokenCache)
+		authConfig, err := providerecrPublic.GetAuthconfig(image, authData)
+		if err != nil {
+			return authConfig, CannotPullECRContainerError{err}
+		}
+		return authConfig, nil
+	}
 
 	if authData == nil {
 		return dg.auth.GetAuthconfig(image, nil)

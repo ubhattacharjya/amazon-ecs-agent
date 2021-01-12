@@ -363,6 +363,7 @@ func (agent *ecsAgent) logintoEcrPublic() error {
 	ecrpublicClient := agent.ecrpublicfactory.NewECRPublicClient(agent.credentialProvider)
 	out, err := ecrpublic.GetAuthorizationToken(ecrpublicClient)
 	seelog.Infof("Authorization token is %v", out)
+	agent.dockerClient.SetECRPublicTokenCache(ecrpublicClient, out)
 	return err
 }
 
