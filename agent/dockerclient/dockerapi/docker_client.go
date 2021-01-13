@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,8 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ecrpublic"
 
 	"github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
@@ -72,6 +75,8 @@ const (
 	tokenCacheSize = 100
 	// tokenCacheTTL is the default ttl of the docker auth for ECR
 	tokenCacheTTL = 12 * time.Hour
+	// ecrPublicAuthTokenKey Cache key for ecrPublicAuthToken
+	ecrPublicAuthTokenKey = "ecrPublicAuthToken"
 
 	// pullStatusSuppressDelay controls the time where pull status progress bar
 	// output will be suppressed in debug mode
@@ -105,6 +110,8 @@ type DockerClient interface {
 
 	// KnownVersions returns a slice of the Docker API versions known to the Docker daemon.
 	KnownVersions() []dockerclient.DockerVersion
+
+	SetECRPublicCache(*ecrpublic.AuthorizationData)
 
 	// WithVersion returns a new DockerClient for which all operations will use the given remote api version.
 	// A default version will be used for a client not produced via this method.
@@ -214,6 +221,7 @@ type dockerGoClient struct {
 	ecrClientFactory         ecr.ECRFactory
 	auth                     dockerauth.DockerAuthProvider
 	ecrTokenCache            async.Cache
+	ecrPublicTokenCache      async.Cache
 	config                   *config.Config
 	context                  context.Context
 	imagePullBackoff         retry.Backoff
@@ -274,12 +282,13 @@ func NewDockerGoClient(sdkclientFactory sdkclientfactory.Factory,
 		dockerAuthData = cfg.EngineAuthData.Contents()
 	}
 	return &dockerGoClient{
-		sdkClientFactory: sdkclientFactory,
-		auth:             dockerauth.NewDockerAuthProvider(cfg.EngineAuthType, dockerAuthData),
-		ecrClientFactory: ecr.NewECRFactory(cfg.AcceptInsecureCert),
-		ecrTokenCache:    async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
-		config:           cfg,
-		context:          ctx,
+		sdkClientFactory:       sdkclientFactory,
+		auth:                   dockerauth.NewDockerAuthProvider(cfg.EngineAuthType, dockerAuthData),
+		ecrClientFactory:       ecr.NewECRFactory(cfg.AcceptInsecureCert),
+		ecrTokenCache:          async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
+		ecrPublicTokenCache:    async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
+		config:                 cfg,
+		context:                ctx,
 		imagePullBackoff: retry.NewExponentialBackoff(minimumPullRetryDelay, maximumPullRetryDelay,
 			pullRetryJitterMultiplier, pullRetryDelayMultiplier),
 		inactivityTimeoutHandler: handleInactivityTimeout,
@@ -488,7 +497,39 @@ func (dg *dockerGoClient) InspectImage(image string) (*types.ImageInspect, error
 	return &imageData, err
 }
 
+func (dg *dockerGoClient) SetECRPublicCache(authData *ecrpublic.AuthorizationData) {
+	dg.ecrPublicTokenCache.Set("ecrPublicToken", authData)
+}
+
+
 func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.RegistryAuthenticationData) (types.AuthConfig, error) {
+
+	publicECRUri, err := regexp.MatchString(`^public\.ecr\.aws/[a-z][a-z0-9-_/]*:.*$`, image)
+	if err != nil {
+		fmt.Errorf(err.Error())
+	}
+
+	if publicECRUri {
+		seelog.Infof("public ECR uri detected " + image)
+		authorizationToken, ok := dg.ecrPublicTokenCache.Get("ecrPublicToken")
+		seelog.Infof("try get ecrPublicToken from cache")
+		if ok {
+			authData := authorizationToken.(ecrpublic.AuthorizationData)
+			decodedToken, err := base64.StdEncoding.DecodeString(aws.StringValue(authData.AuthorizationToken))
+			// decodedToken, err := base64.StdEncoding.DecodeString(authorizationToken.(string))
+			seelog.Infof("decodedToken: " + string(decodedToken))
+			if err != nil {
+				return types.AuthConfig{}, err
+			}
+			parts := strings.SplitN(string(decodedToken), ":", 2)
+			return types.AuthConfig{
+				Username:      parts[0],
+				Password:      parts[1],
+			}, nil
+		} else {
+			fmt.Errorf("cache miss")
+		}
+	}
 
 	if authData == nil {
 		return dg.auth.GetAuthconfig(image, nil)

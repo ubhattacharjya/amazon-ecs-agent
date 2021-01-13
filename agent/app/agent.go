@@ -56,6 +56,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper"
 	"github.com/aws/amazon-ecs-agent/agent/version"
 	"github.com/aws/aws-sdk-go/aws"
+	ecrpublicsdk "github.com/aws/aws-sdk-go/service/ecrpublic"
 	aws_credentials "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/defaults"
 	"github.com/cihub/seelog"
@@ -350,7 +351,9 @@ func (agent *ecsAgent) doStart(containerChangeEventStream *eventstream.EventStre
 	agent.startAsyncRoutines(containerChangeEventStream, credentialsManager, imageManager,
 		taskEngine, deregisterInstanceEventStream, client, taskHandler, attachmentEventHandler, state)
 
-	ecrPublicLoginErr := agent.logintoEcrPublic()
+	ecrPublicToken, ecrPublicLoginErr := agent.logintoEcrPublic()
+	agent.dockerClient.SetECRPublicCache(ecrPublicToken)
+	seelog.Infof("ecrPublicToken " + aws.StringValue(ecrPublicToken.AuthorizationToken) + " cached ")
 	if ecrPublicLoginErr != nil {
 		seelog.Errorf("Failed to login to ECR public repository")
 	}
@@ -359,11 +362,11 @@ func (agent *ecsAgent) doStart(containerChangeEventStream *eventstream.EventStre
 		deregisterInstanceEventStream, client, state, taskHandler)
 }
 
-func (agent *ecsAgent) logintoEcrPublic() error {
+func (agent *ecsAgent) logintoEcrPublic() (*ecrpublicsdk.AuthorizationData, error) {
 	ecrpublicClient := agent.ecrpublicfactory.NewECRPublicClient(agent.credentialProvider)
 	out, err := ecrpublic.GetAuthorizationToken(ecrpublicClient)
 	seelog.Infof("Authorization token is %v", out)
-	return err
+	return out, err
 }
 
 // newTaskEngine creates a new docker task engine object. It tries to load the
