@@ -39,11 +39,11 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/ecr"
 	ecrpublicclient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
+	ecrpublicfactory "github.com/aws/amazon-ecs-agent/agent/ecrpublic/factory"
 	"github.com/aws/amazon-ecs-agent/agent/metrics"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
-	"github.com/aws/aws-sdk-go/service/ecrpublic"
 
 	"github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
@@ -107,8 +107,6 @@ type DockerClient interface {
 
 	// KnownVersions returns a slice of the Docker API versions known to the Docker daemon.
 	KnownVersions() []dockerclient.DockerVersion
-
-	SetECRPublicTokenCache(ecrpublicclient.ECRPublicClient, *ecrpublic.AuthorizationData)
 
 	// WithVersion returns a new DockerClient for which all operations will use the given remote api version.
 	// A default version will be used for a client not produced via this method.
@@ -282,6 +280,7 @@ func NewDockerGoClient(sdkclientFactory sdkclientfactory.Factory,
 		sdkClientFactory: sdkclientFactory,
 		auth:             dockerauth.NewDockerAuthProvider(cfg.EngineAuthType, dockerAuthData),
 		ecrClientFactory: ecr.NewECRFactory(cfg.AcceptInsecureCert),
+		ecrPublicClient:  ecrpublicfactory.NewECRPublicClientCreator().NewECRPublicClient(),
 		ecrTokenCache:    async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
 		config:           cfg,
 		context:          ctx,
@@ -289,11 +288,6 @@ func NewDockerGoClient(sdkclientFactory sdkclientfactory.Factory,
 			pullRetryJitterMultiplier, pullRetryDelayMultiplier),
 		inactivityTimeoutHandler: handleInactivityTimeout,
 	}, nil
-}
-
-func (dg *dockerGoClient) SetECRPublicTokenCache(client ecrpublicclient.ECRPublicClient, authData *ecrpublic.AuthorizationData) {
-	dg.ecrTokenCache.Set("ecrPublicKey", authData)
-	dg.ecrPublicClient = client
 }
 
 // Returns the Docker SDK Client

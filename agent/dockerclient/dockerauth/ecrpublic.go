@@ -11,7 +11,6 @@ import (
 	ecrpublicclient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/cihub/seelog"
 	log "github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
 )
@@ -33,38 +32,55 @@ func NewECRPublicAuthProvider(client ecrpublicclient.ECRPublicClient, cache asyn
 // GetAuthconfig retrieves the correct auth configuration for the given repository
 func (authProvider *ecrPublicAuthProvider) GetAuthconfig(image string, registryAuthData *apicontainer.RegistryAuthenticationData) (types.AuthConfig, error) {
 	// Try to get the auth config from cache
-	auth, err := authProvider.getPublicAuthConfigFromCache()
+	auth := authProvider.getPublicAuthConfigFromCache()
 	if auth != nil {
 		return *auth, nil
 	}
 
-	return types.AuthConfig{}, fmt.Errorf(fmt.Sprintf("No valid creentials found: %v", err))
+	// Get the auth config from ECR
+	return authProvider.getAuthConfigFromECRPublic()
 }
 
 // getAuthconfigFromCache retrieves the token from cache
-func (authProvider *ecrPublicAuthProvider) getPublicAuthConfigFromCache() (*types.AuthConfig, error) {
+func (authProvider *ecrPublicAuthProvider) getPublicAuthConfigFromCache() *types.AuthConfig {
 	token, ok := authProvider.tokenCache.Get("ecrPublicKey")
 	if !ok {
-		return nil, nil
+		return nil
 	}
 
 	cachedToken, ok := token.(*ecrpublic.AuthorizationData)
 	if !ok {
 		log.Warnf("Reading ECR credentials from cache failed")
-		return nil, nil
+		return nil
 	}
 
 	if isTokenExpired(cachedToken) {
-		cachedToken, err := ecrpublicclient.GetAuthorizationToken(authProvider.ecrPublicClient)
-		seelog.Infof("Authorization token is %v", cachedToken)
-		if err != nil {
-			return nil, nil
-		}
-		authProvider.tokenCache.Set("ecrPublicKey", cachedToken)
+		log.Errorf("ECR public authentication token has expired.")
+		authProvider.tokenCache.Delete("ecrPublicKey")
+		return nil
 	}
 
 	auth, err := extractECRPublicToken(cachedToken)
-	return &auth, err
+	if err != nil {
+		log.Errorf("Extract docker auth from cache failed, err: %v", err)
+	}
+	return &auth
+}
+
+// getAuthConfigFromECR calls the ECR API to get docker auth config
+func (authProvider *ecrPublicAuthProvider) getAuthConfigFromECRPublic() (types.AuthConfig, error) {
+	log.Debugf("Calling ECR.GetAuthorizationToken for ecr-public%")
+	cachedToken, err := ecrpublicclient.GetAuthorizationToken(authProvider.ecrPublicClient)
+	if err != nil {
+		return types.AuthConfig{}, err
+	}
+	if cachedToken == nil {
+		return types.AuthConfig{}, fmt.Errorf("ecr auth: missing AuthorizationData in ECR public")
+	}
+
+	// Cache the new token
+	authProvider.tokenCache.Set("ecrPublicKey", cachedToken)
+	return extractECRPublicToken(cachedToken)
 }
 
 func extractECRPublicToken(authData *ecrpublic.AuthorizationData) (types.AuthConfig, error) {
