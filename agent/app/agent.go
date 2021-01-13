@@ -56,9 +56,9 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/utils/mobypkgwrapper"
 	"github.com/aws/amazon-ecs-agent/agent/version"
 	"github.com/aws/aws-sdk-go/aws"
-	ecrpublicsdk "github.com/aws/aws-sdk-go/service/ecrpublic"
 	aws_credentials "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/defaults"
+	ecrpublicsdk "github.com/aws/aws-sdk-go/service/ecrpublic"
 	"github.com/cihub/seelog"
 	"github.com/pborman/uuid"
 )
@@ -363,7 +363,7 @@ func (agent *ecsAgent) doStart(containerChangeEventStream *eventstream.EventStre
 }
 
 func (agent *ecsAgent) logintoEcrPublic() (*ecrpublicsdk.AuthorizationData, error) {
-	ecrpublicClient := agent.ecrpublicfactory.NewECRPublicClient(agent.credentialProvider)
+	ecrpublicClient := agent.ecrpublicfactory.NewECRPublicClient()
 	out, err := ecrpublic.GetAuthorizationToken(ecrpublicClient)
 	seelog.Infof("Authorization token is %v", out)
 	return out, err

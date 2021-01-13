@@ -19,10 +19,8 @@ import (
 	ecrpublicclient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
 	"github.com/aws/amazon-ecs-agent/agent/httpclient"
 	"github.com/aws/aws-sdk-go/aws"
-	awscreds "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/cihub/seelog"
 )
 
 const (
@@ -31,7 +29,7 @@ const (
 )
 
 type ECRPublicClientCreator interface {
-	NewECRPublicClient(creds *awscreds.Credentials) ecrpublicclient.ECRPublicClient
+	NewECRPublicClient() ecrpublicclient.ECRPublicClient
 }
 
 func NewECRPublicClientCreator() ECRPublicClientCreator {
@@ -40,18 +38,11 @@ func NewECRPublicClientCreator() ECRPublicClientCreator {
 
 type ecrPublicClientCreator struct{}
 
-func (*ecrPublicClientCreator) NewECRPublicClient(awscred *awscreds.Credentials) ecrpublicclient.ECRPublicClient {
-
-	creds, err := awscred.Get()
-	if err != nil {
-		seelog.Errorf("Error getting valid credentials: %s", err)
-	}
+func (*ecrPublicClientCreator) NewECRPublicClient() ecrpublicclient.ECRPublicClient {
 	cfg := aws.NewConfig().
 		WithHTTPClient(httpclient.New(roundtripTimeout, false)).
-		WithRegion(ecrPublicRegion).
-		WithCredentials(
-			awscreds.NewStaticCredentials(creds.AccessKeyID, creds.SecretAccessKey,
-				creds.SessionToken))
+		WithRegion(ecrPublicRegion)
+
 	sess := session.Must(session.NewSession(cfg))
 	return ecrpublic.New(sess)
 

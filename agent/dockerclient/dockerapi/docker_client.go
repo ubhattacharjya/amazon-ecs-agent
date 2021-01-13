@@ -39,13 +39,14 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclient"
 	"github.com/aws/amazon-ecs-agent/agent/dockerclient/sdkclientfactory"
 	"github.com/aws/amazon-ecs-agent/agent/ecr"
+	ecrpublicClient "github.com/aws/amazon-ecs-agent/agent/ecrpublic"
+	ecrpublicfactory "github.com/aws/amazon-ecs-agent/agent/ecrpublic/factory"
 	"github.com/aws/amazon-ecs-agent/agent/metrics"
 	"github.com/aws/amazon-ecs-agent/agent/utils"
 	"github.com/aws/amazon-ecs-agent/agent/utils/retry"
 	"github.com/aws/amazon-ecs-agent/agent/utils/ttime"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ecrpublic"
-
 	"github.com/cihub/seelog"
 	"github.com/docker/docker/api/types"
 	dockercontainer "github.com/docker/docker/api/types/container"
@@ -282,13 +283,13 @@ func NewDockerGoClient(sdkclientFactory sdkclientfactory.Factory,
 		dockerAuthData = cfg.EngineAuthData.Contents()
 	}
 	return &dockerGoClient{
-		sdkClientFactory:       sdkclientFactory,
-		auth:                   dockerauth.NewDockerAuthProvider(cfg.EngineAuthType, dockerAuthData),
-		ecrClientFactory:       ecr.NewECRFactory(cfg.AcceptInsecureCert),
-		ecrTokenCache:          async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
-		ecrPublicTokenCache:    async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
-		config:                 cfg,
-		context:                ctx,
+		sdkClientFactory:    sdkclientFactory,
+		auth:                dockerauth.NewDockerAuthProvider(cfg.EngineAuthType, dockerAuthData),
+		ecrClientFactory:    ecr.NewECRFactory(cfg.AcceptInsecureCert),
+		ecrTokenCache:       async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
+		ecrPublicTokenCache: async.NewLRUCache(tokenCacheSize, tokenCacheTTL),
+		config:              cfg,
+		context:             ctx,
 		imagePullBackoff: retry.NewExponentialBackoff(minimumPullRetryDelay, maximumPullRetryDelay,
 			pullRetryJitterMultiplier, pullRetryDelayMultiplier),
 		inactivityTimeoutHandler: handleInactivityTimeout,
@@ -501,7 +502,6 @@ func (dg *dockerGoClient) SetECRPublicCache(authData *ecrpublic.AuthorizationDat
 	dg.ecrPublicTokenCache.Set("ecrPublicToken", authData)
 }
 
-
 func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.RegistryAuthenticationData) (types.AuthConfig, error) {
 
 	publicECRUri, err := regexp.MatchString(`^public\.ecr\.aws/[a-z][a-z0-9-_/]*:.*$`, image)
@@ -515,6 +515,15 @@ func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.Regis
 		seelog.Infof("try get ecrPublicToken from cache")
 		if ok {
 			authData := authorizationToken.(ecrpublic.AuthorizationData)
+			if time.Now().After(*authData.ExpiresAt) {
+				client := ecrpublicfactory.NewECRPublicClientCreator().NewECRPublicClient()
+				authToken, err := ecrpublicClient.GetAuthorizationToken(client)
+				if err != nil {
+					return types.AuthConfig{}, err
+				}
+				authData = *authToken
+				dg.SetECRPublicCache(authToken)
+			}
 			decodedToken, err := base64.StdEncoding.DecodeString(aws.StringValue(authData.AuthorizationToken))
 			// decodedToken, err := base64.StdEncoding.DecodeString(authorizationToken.(string))
 			seelog.Infof("decodedToken: " + string(decodedToken))
@@ -523,8 +532,8 @@ func (dg *dockerGoClient) getAuthdata(image string, authData *apicontainer.Regis
 			}
 			parts := strings.SplitN(string(decodedToken), ":", 2)
 			return types.AuthConfig{
-				Username:      parts[0],
-				Password:      parts[1],
+				Username: parts[0],
+				Password: parts[1],
 			}, nil
 		} else {
 			fmt.Errorf("cache miss")
