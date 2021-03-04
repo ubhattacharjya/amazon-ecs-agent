@@ -89,6 +89,9 @@ func extractECRPublicToken(authData *ecrpublic.AuthorizationData) (types.AuthCon
 		return types.AuthConfig{}, err
 	}
 	parts := strings.SplitN(string(decodedToken), ":", 2)
+	log.Infof("======================")
+	log.Infof("Username: %v", parts[0])
+	log.Infof("Password: %v", parts[1])
 	return types.AuthConfig{
 		Username: parts[0],
 		Password: parts[1],
