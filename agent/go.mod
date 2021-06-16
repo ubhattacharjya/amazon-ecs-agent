@@ -72,4 +72,5 @@ replace (
 	golang.org/x/net => golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20200923182605-d9f96fdee20d
 	golang.org/x/tools => golang.org/x/tools v0.0.0-20190524140312-2c0ae7006135
+
 )
