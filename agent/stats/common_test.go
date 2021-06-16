@@ -27,7 +27,7 @@ import (
 	"github.com/aws/amazon-ecs-agent/agent/eventstream"
 	"github.com/aws/amazon-ecs-agent/agent/statechange"
 	"github.com/aws/amazon-ecs-agent/agent/tcs/model/ecstcs"
-
+//	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/aws/aws-sdk-go/aws"
 
 	"github.com/docker/docker/api/types"
@@ -92,6 +92,7 @@ func createGremlin(client *sdkClient.Client, netMode string) (*dockercontainer.C
 			NetworkMode: dockercontainer.NetworkMode(netMode),
 		},
 		&network.NetworkingConfig{},
+		nil,
 		"")
 
 	return &containerGremlin, err
@@ -104,6 +105,7 @@ func createHealthContainer(client *sdkClient.Client) (*dockercontainer.Container
 		},
 		&dockercontainer.HostConfig{},
 		&network.NetworkingConfig{},
+		nil,
 		"")
 
 	return &container, err
