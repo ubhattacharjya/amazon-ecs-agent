@@ -824,6 +824,71 @@
         "stopCandidates": {"shape": "TaskIdentifierList"},
         "messageId": {"shape": "String"}
       }
+    },
+   "InfrastructureContainers": {
+      "type": "structure",
+      "members": {
+        "type": {
+          "shape": "String"
+        },
+        "containerSpec": {
+          "shape": "ContainerSpec"
+        }
+      }
+    },
+    "ContainerSpec": {
+      "type": "structure",
+      "members": {
+        "image": {
+          "shape": "String"
+        },
+        "healthCheckConfig": {
+          "shape": "HealthCheckConfig"
+        },
+        "environmentVariables": {
+          "shape": "EnvVariables"
+        }
+      }
+    },
+    "HealthCheckConfig": {
+      "type": "structure",
+      "required": [
+        "command"
+      ],
+      "members": {
+        "command": {
+          "shape": "StringList"
+        },
+        "interval": {
+          "shape": "Integer"
+        },
+        "timeout": {
+          "shape": "Integer"
+        },
+        "retries": {
+          "shape": "Integer"
+        },
+        "startPeriod": {
+          "shape": "Integer"
+        }
+      }
+    },
+    "EnvVariables": {
+      "type": "list",
+      "member": {
+        "shape": "EnvVariable"
+      }
+    },
+    "EnvVariable": {
+      "type": "structure",
+      "members": {
+        "name": {
+          "shape": "String"
+        },
+        "value": {
+          "shape": "String"
+        }
+      }
     }
   }
 }

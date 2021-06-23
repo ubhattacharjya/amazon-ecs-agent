@@ -438,6 +438,26 @@ func (s ContainerDependency) GoString() string {
 	return s.String()
 }
 
+type ContainerSpec struct {
+	_ struct{} `type:"structure"`
+
+	EnvironmentVariables []*EnvVariable `locationName:"environmentVariables" type:"list"`
+
+	HealthCheckConfig *HealthCheckConfig `locationName:"healthCheckConfig" type:"structure"`
+
+	Image *string `locationName:"image" type:"string"`
+}
+
+// String returns the string representation
+func (s ContainerSpec) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s ContainerSpec) GoString() string {
+	return s.String()
+}
+
 type DockerConfig struct {
 	_ struct{} `type:"structure"`
 
@@ -600,6 +620,24 @@ func (s EncodedString) GoString() string {
 	return s.String()
 }
 
+type EnvVariable struct {
+	_ struct{} `type:"structure"`
+
+	Name *string `locationName:"name" type:"string"`
+
+	Value *string `locationName:"value" type:"string"`
+}
+
+// String returns the string representation
+func (s EnvVariable) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s EnvVariable) GoString() string {
+	return s.String()
+}
+
 type EnvironmentFile struct {
 	_ struct{} `type:"structure"`
 
@@ -717,6 +755,31 @@ func (s FirelensConfiguration) String() string {
 
 // GoString returns the string representation
 func (s FirelensConfiguration) GoString() string {
+	return s.String()
+}
+
+type HealthCheckConfig struct {
+	_ struct{} `type:"structure"`
+
+	// Command is a required field
+	Command []*string `locationName:"command" type:"list" required:"true"`
+
+	Interval *int64 `locationName:"interval" type:"integer"`
+
+	Retries *int64 `locationName:"retries" type:"integer"`
+
+	StartPeriod *int64 `locationName:"startPeriod" type:"integer"`
+
+	Timeout *int64 `locationName:"timeout" type:"integer"`
+}
+
+// String returns the string representation
+func (s HealthCheckConfig) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s HealthCheckConfig) GoString() string {
 	return s.String()
 }
 
@@ -959,6 +1022,24 @@ func (s *InactiveInstanceException) StatusCode() int {
 // RequestID returns the service's response RequestID for request.
 func (s *InactiveInstanceException) RequestID() string {
 	return s.RespMetadata.RequestID
+}
+
+type InfrastructureContainers struct {
+	_ struct{} `type:"structure"`
+
+	ContainerSpec *ContainerSpec `locationName:"containerSpec" type:"structure"`
+
+	Type *string `locationName:"type" type:"string"`
+}
+
+// String returns the string representation
+func (s InfrastructureContainers) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s InfrastructureContainers) GoString() string {
+	return s.String()
 }
 
 type InvalidClusterException struct {
