@@ -961,6 +961,24 @@ func (s *InactiveInstanceException) RequestID() string {
 	return s.RespMetadata.RequestID
 }
 
+type InfrastructureContainer struct {
+	_ struct{} `type:"structure"`
+
+	ContainerSpec *Container `locationName:"containerSpec" type:"structure"`
+
+	Type *string `locationName:"type" type:"string"`
+}
+
+// String returns the string representation
+func (s InfrastructureContainer) String() string {
+	return awsutil.Prettify(s)
+}
+
+// GoString returns the string representation
+func (s InfrastructureContainer) GoString() string {
+	return s.String()
+}
+
 type InvalidClusterException struct {
 	_            struct{}                  `type:"structure"`
 	RespMetadata protocol.ResponseMetadata `json:"-" xml:"-"`

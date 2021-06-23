@@ -824,6 +824,21 @@
         "stopCandidates": {"shape": "TaskIdentifierList"},
         "messageId": {"shape": "String"}
       }
+    },
+   "InfrastructureContainers": {
+      "type": "list",
+      "member": {"shape": "InfrastructureContainer"}   
+   },
+   "InfrastructureContainer": {
+      "type": "structure",
+      "members": {
+        "type": {
+          "shape": "String"
+        },
+        "containerSpec": {
+          "shape": "Container"
+        }
+      }
     }
   }
 }
