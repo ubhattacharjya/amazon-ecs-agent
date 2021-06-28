@@ -35,6 +35,7 @@ const (
 	// sharing either PID or IPC resource namespaces. Regardless if one or
 	// both flags are used, only 1 of these containers need to be active
 	ContainerNamespacePause
+	ContainerInfrastructure
 )
 
 // ContainerType represents the type of the internal container created
@@ -45,6 +46,7 @@ var stringToContainerType = map[string]ContainerType{
 	"EMPTY_HOST_VOLUME": ContainerEmptyHostVolume,
 	"CNI_PAUSE":         ContainerCNIPause,
 	"NAMESPACE_PAUSE":   ContainerNamespacePause,
+	"SERVICE_CONNECT":   ContainerInfrastructure,
 }
 
 // String converts the container type enum to a string

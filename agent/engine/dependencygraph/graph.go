@@ -196,7 +196,13 @@ func verifyContainerDependenciesResolvedForResource(target taskresource.TaskReso
 		if !exists {
 			return false
 		}
-		if dep.GetKnownStatus() < containerDependency.SatisfiedStatus {
+		infraContainerDependencyResolved := false
+		if dep.Type == apicontainer.ContainerInfrastructure {
+			infraContainerDependencyResolved = dep.HealthStatusShouldBeReported() && dep.GetHealthStatus().Status == apicontainerstatus.ContainerHealthy
+		} else {
+			infraContainerDependencyResolved = true
+		}
+		if dep.GetKnownStatus() < containerDependency.SatisfiedStatus || !infraContainerDependencyResolved {
 			return false
 		}
 	}

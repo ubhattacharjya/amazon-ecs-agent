@@ -76,12 +76,13 @@ const (
 
 	NvidiaVisibleDevicesEnvVar = "NVIDIA_VISIBLE_DEVICES"
 	GPUAssociationType         = "gpu"
-
+	ServiceConnect             = "ServiceConnect"
 	// neuronRuntime is the name of the neuron docker runtime.
 	neuronRuntime = "neuron"
 
-	ContainerOrderingCreateCondition = "CREATE"
-	ContainerOrderingStartCondition  = "START"
+	ContainerOrderingCreateCondition  = "CREATE"
+	ContainerOrderingStartCondition   = "START"
+	ContainerOrderingHealthyCondition = "HEALTHY"
 
 	arnResourceDelimiter = "/"
 	// networkModeNone specifies the string used to define the `none` docker networking mode
@@ -164,6 +165,8 @@ type Task struct {
 	Containers []*apicontainer.Container
 	// Associations are the available associations for the task.
 	Associations []Association `json:"associations"`
+	// InfrastructureContainers are the list of infrastructure containers required for the task
+	InfrastructureContainers []*InfrastructureContainer `json:"infrastructureContainers"`
 	// ResourcesMapUnsafe is the map of resource type to corresponding resources
 	ResourcesMapUnsafe resourcetype.ResourcesMap `json:"resources"`
 	// Volumes are the volumes for the task
@@ -279,9 +282,11 @@ func TaskFromACS(acsTask *ecsacs.Task, envelope *ecsacs.PayloadMessage) (*Task, 
 		return nil, err
 	}
 	task := &Task{}
+
 	if err := json.Unmarshal(data, task); err != nil {
 		return nil, err
 	}
+
 	if task.GetDesiredStatus() == apitaskstatus.TaskRunning && envelope.SeqNum != nil {
 		task.StartSequenceNumber = *envelope.SeqNum
 	} else if task.GetDesiredStatus() == apitaskstatus.TaskStopped && envelope.SeqNum != nil {
@@ -331,6 +336,41 @@ func (task *Task) PostUnmarshalTask(cfg *config.Config,
 			seelog.Errorf("Task [%s]: could not intialize resource: %v", task.Arn, err)
 			return apierrors.NewResourceInitError(task.Arn, err)
 		}
+	}
+
+	infra := InfrastructureContainer{
+		Type: "ServiceConnect",
+		ContainerSpec: apicontainer.Container{
+			Name:  "ServiceConnect",
+			Image: "public.ecr.aws/n0d8u6n1/utsa-busy",
+		},
+	}
+
+	task.InfrastructureContainers = append(task.InfrastructureContainers, &infra)
+	if serviceConnectContainer := task.GetServiceConnectContainer(); serviceConnectContainer != nil {
+		infraContainerConfig := dockercontainer.Config{
+			Image: "public.ecr.aws/n0d8u6n1/utsa-busy",
+			Healthcheck: &dockercontainer.HealthConfig{
+				Test:        []string{"CMD-SHELL", "echo \"help\" "},
+				Interval:    5,
+				Retries:     2,
+				StartPeriod: 1,
+				Timeout:     5,
+			},
+		}
+
+		bytes, err := json.Marshal(infraContainerConfig)
+		if err != nil {
+			return errors.Errorf("Error json marshaling infra config: %s", err)
+		}
+		serializedConfig := string(bytes)
+		serviceConnectContainer.DockerConfig = apicontainer.DockerConfig{
+			Config: &serializedConfig,
+		}
+
+		serviceConnectContainer.Type = apicontainer.ContainerInfrastructure
+		task.addContainerDependencyForInfraContainer(serviceConnectContainer)
+		task.Containers = append(task.Containers, serviceConnectContainer)
 	}
 
 	if err := task.initializeContainerOrderingForVolumes(); err != nil {
@@ -1301,6 +1341,23 @@ func (task *Task) addNamespaceSharingProvisioningDependency(cfg *config.Config) 
 		}
 		container.BuildContainerDependency(NamespacePauseContainerName, apicontainerstatus.ContainerRunning, apicontainerstatus.ContainerPulled)
 		namespacePauseContainer.BuildContainerDependency(container.Name, apicontainerstatus.ContainerStopped, apicontainerstatus.ContainerStopped)
+	}
+}
+
+func (task *Task) addContainerDependencyForInfraContainer(serviceConnectContainer *apicontainer.Container) {
+	for _, container := range task.Containers {
+		if container.IsInternal() {
+			continue
+		}
+		dependOn := apicontainer.DependsOn{ContainerName: serviceConnectContainer.Name, Condition: ContainerOrderingHealthyCondition}
+		container.SetDependsOn(append(container.GetDependsOn(), dependOn))
+	}
+
+	for _, resource := range task.GetResources() {
+		if resource.DependOnTaskNetwork() {
+			seelog.Debugf("Task [%s]: adding network pause container dependency to resource [%s]", task.Arn, resource.GetName())
+			resource.BuildContainerDependency(serviceConnectContainer.Name, apicontainerstatus.ContainerRunning, resourcestatus.ResourceStatus(taskresourcevolume.VolumeCreated))
+		}
 	}
 }
 
@@ -2706,4 +2763,22 @@ func (task *Task) SetLocalIPAddress(addr string) {
 	defer task.lock.Unlock()
 
 	task.LocalIPAddressUnsafe = addr
+}
+
+func (task *Task) GetServiceConnectContainer() *apicontainer.Container {
+	for _, infracontainer := range task.InfrastructureContainers {
+		if infracontainer.Type == ServiceConnect {
+			return &infracontainer.ContainerSpec
+		}
+	}
+	return nil
+}
+
+func (task *Task) isServiceConnectEnabled() bool {
+	for _, infracontainer := range task.InfrastructureContainers {
+		if infracontainer.Type == ServiceConnect {
+			return true
+		}
+	}
+	return false
 }
